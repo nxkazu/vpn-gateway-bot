@@ -4,8 +4,8 @@ import com.tessera.bot.config.AppConfig;
 import com.tessera.bot.db.ReferralRepository;
 import com.tessera.bot.remnawave.RemnawaveClient;
 import com.tessera.bot.remnawave.dto.RemnawaveUser;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
@@ -17,23 +17,16 @@ import java.util.Optional;
  * {@code REFERRAL_REWARD_DAYS} extra VPN days the first time a user they invited
  * activates a (paid) plan.
  */
+@Slf4j
+@RequiredArgsConstructor
 public class ReferralService {
 
-    private static final Logger log = LoggerFactory.getLogger(ReferralService.class);
     private static final String PAYLOAD_PREFIX = "ref_";
 
     private final AppConfig config;
     private final ReferralRepository referrals;
     private final RemnawaveClient panel;
     private final SubscriptionService subscriptions;
-
-    public ReferralService(AppConfig config, ReferralRepository referrals,
-                           RemnawaveClient panel, SubscriptionService subscriptions) {
-        this.config = config;
-        this.referrals = referrals;
-        this.panel = panel;
-        this.subscriptions = subscriptions;
-    }
 
     public String buildReferralLink(long telegramId) {
         return "https://t.me/" + config.botUsername() + "?start=" + PAYLOAD_PREFIX + telegramId;
