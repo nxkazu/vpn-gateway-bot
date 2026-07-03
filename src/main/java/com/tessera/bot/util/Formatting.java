@@ -1,5 +1,8 @@
 package com.tessera.bot.util;
 
+import com.tessera.bot.i18n.Lang;
+import com.tessera.bot.i18n.Messages;
+
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
@@ -22,22 +25,23 @@ public final class Formatting {
     }
 
     public static String dateTime(OffsetDateTime dt) {
-        return dt == null ? "—" : DATE.format(dt);
+        return dt == null ? "\u2014" : DATE.format(dt);
     }
 
-    public static String status(String status) {
-        if (status == null) return "неизвестно";
+    /** Localized, emoji-prefixed subscription status label. */
+    public static String status(Messages m, Lang lang, String status) {
+        if (status == null) return m.t(lang, "status.unknown");
         return switch (status) {
-            case "ACTIVE" -> "🟢 Активна";
-            case "DISABLED" -> "⚪ Отключена";
-            case "LIMITED" -> "🟡 Лимит трафика";
-            case "EXPIRED" -> "🔴 Истекла";
+            case "ACTIVE" -> m.t(lang, "status.active");
+            case "DISABLED" -> m.t(lang, "status.disabled");
+            case "LIMITED" -> m.t(lang, "status.limited");
+            case "EXPIRED" -> m.t(lang, "status.expired");
             default -> status;
         };
     }
 
     public static String escapeMarkdown(String text) {
         if (text == null) return "";
-        return text.replaceAll("([_*\[\]()~`>#+\-=|{}.!])", "\\$1");
+        return text.replaceAll("([_*\\[\\]()~`>#+\\-=|{}.!])", "\\\\$1");
     }
 }
