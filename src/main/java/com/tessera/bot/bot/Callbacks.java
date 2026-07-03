@@ -18,6 +18,17 @@ public final class Callbacks {
 
     // Admin menu
     public static final String ADMIN_MAIN = "admin:main";
+    public static final String ADMIN_DASHBOARD = "admin:dash";
+    public static final String ADMIN_USERS = "admin:users";              // list, page 0
+    public static final String ADMIN_USERS_PAGE_PREFIX = "admin:users:";  // admin:users:<page>
+    public static final String ADMIN_SQUADS = "admin:squads";
+    public static final String ADMIN_AUDIT = "admin:audit";
+    public static final String ADMIN_SETTINGS = "admin:settings";
+    public static final String ADMIN_CREATE_SUB = "admin:createsub";
+    public static final String ADMIN_NODE_PREFIX = "admin:node:";        // admin:node:<action>:<uuid>
+    public static final String ADMIN_BC_PREFIX = "admin:bc:";            // admin:bc:<segment>
+    public static final String ADMIN_BC_CONFIRM = "admin:bcok";
+    public static final String ADMIN_BC_CANCEL = "admin:bccancel";
     public static final String ADMIN_STATS = "admin:stats";
     public static final String ADMIN_NODES = "admin:nodes";
     public static final String ADMIN_HEALTH = "admin:health";
@@ -26,4 +37,7 @@ public final class Callbacks {
     public static final String ADMIN_NODE_RESTART_ALL = "admin:nodes:restartall";
 
     public static final String ADMIN_USER_PREFIX = "admin:user:";      // admin:user:<action>:<uuid>
+    // Extended per-user admin actions carried on ADMIN_USER_PREFIX:
+    //   adddays:<uuid>:<n>, adddaysx:<uuid>, traffic:<uuid>, hwid:<uuid>,
+    //   hwiddel:<uuid>:<hwid>, squads:<uuid>, squadtog:<uuid>:<squadUuid>, card:<uuid>
 }
