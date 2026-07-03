@@ -70,6 +70,27 @@ public class UserRepository {
         }
     }
 
+    /** Telegram ids of users whose Remnawave account is (or is not) active, for segmented broadcasts. */
+    public java.util.List<Long> telegramIdsWithRemnawave(boolean linked) {
+        String sql = linked
+                ? "SELECT telegram_id FROM bot_users WHERE is_blocked = FALSE AND remnawave_uuid IS NOT NULL"
+                : "SELECT telegram_id FROM bot_users WHERE is_blocked = FALSE AND remnawave_uuid IS NULL";
+        java.util.List<Long> ids = new java.util.ArrayList<>();
+        try (Connection c = ds.getConnection();
+             Statement st = c.createStatement();
+             ResultSet rs = st.executeQuery(sql)) {
+            while (rs.next()) ids.add(rs.getLong(1));
+        } catch (SQLException e) {
+            throw new RuntimeException("telegramIdsWithRemnawave failed", e);
+        }
+        return ids;
+    }
+
+    /** Count of users who have never activated any subscription (candidates for a trial nudge). */
+    public java.util.List<Long> telegramIdsWithoutRemnawave() {
+        return telegramIdsWithRemnawave(false);
+    }
+
     public void markTrialUsed(long telegramId) {
         update("UPDATE bot_users SET trial_used = TRUE, updated_at = now() WHERE telegram_id = ?", telegramId);
     }
