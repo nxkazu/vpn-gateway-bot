@@ -10,4 +10,5 @@ public class BotUser {
     public String remnawaveUsername;
     public boolean blocked;
     public boolean trialUsed;
+    public String locale;
 }
