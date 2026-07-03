@@ -76,6 +76,32 @@ public class SubscriptionService {
                 trafficLimitBytes, planCode);
     }
 
+    // ------------------------------------------------------------- admin ops
+
+    /** Admin: extends a Remnawave account (identified by uuid) by {@code days}, enabling it if needed. */
+    public RemnawaveUser adminAddDays(String uuid, int days) {
+        RemnawaveUser u = panel.getByUuid(uuid);
+        OffsetDateTime base = u.expireAt != null && u.expireAt.isAfter(OffsetDateTime.now(ZoneOffset.UTC))
+                ? u.expireAt
+                : OffsetDateTime.now(ZoneOffset.UTC);
+        RemnawaveUser updated = panel.updateExpiry(uuid, base.plusDays(days));
+        if (!updated.isActive()) panel.enableUser(uuid);
+        return updated;
+    }
+
+    /** Admin: sets an absolute traffic limit (GB; 0 = unlimited) on a Remnawave account. */
+    public RemnawaveUser adminSetTrafficGb(String uuid, long gb) {
+        long bytes = gb <= 0 ? 0L : gb * 1024L * 1024L * 1024L;
+        return panel.setTrafficLimit(uuid, bytes);
+    }
+
+    /** Admin: manually creates (or extends) a subscription for an arbitrary Telegram id. */
+    public RemnawaveUser adminCreateFor(long telegramId, int days, long trafficGb) {
+        users.upsert(telegramId, null, null, null); // ensure the bot-side row exists
+        long bytes = trafficGb <= 0 ? 0L : trafficGb * 1024L * 1024L * 1024L;
+        return activatePlan(telegramId, days, bytes, "admin");
+    }
+
     /** Creates a fresh Remnawave user linked to this Telegram id. */
     private RemnawaveUser provision(long telegramId, OffsetDateTime expireAt, long trafficLimitBytes, String tag) {
         CreateUserRequest req = new CreateUserRequest();
