@@ -119,3 +119,41 @@ java -jar build/libs/tessera-vpn-bot.jar
 ## Лицензия
 
 MIT — см. [LICENSE](LICENSE).
+## Модули (плагины)
+
+Начиная с v1.1 бот собран как мульти-модульный Gradle-проект, а функциональность
+подключается **плагинами** — отдельными JAR-файлами в каталоге `modules/`
+(переменная `MODULES_DIR`). Каждый модуль реализует SPI `BotModule` из `core-api`
+и обнаруживается через `ServiceLoader` в собственном `URLClassLoader`.
+
+```
+tessera-vpn-bot
+├── core-api/          # SPI: BotModule, ModuleContext, PaymentProvider, ...
+├── app/               # ядро бота (tessera-vpn-bot.jar) + загрузчик модулей
+└── payment-module/    # PaymentModule.jar — платёжные шлюзы CryptoBot и Platega
+```
+
+### PaymentModule.jar
+
+Платёжный модуль регистрирует два merchant-гейта:
+
+| Гейт | Что это | Подтверждение |
+|---|---|---|
+| **CryptoBot** | Crypto Pay API (`pay.crypt.bot`), оплата криптой (USDT/TON/...) в счёте на фиатную сумму | поллинг `getInvoices` по кнопке «Я оплатил» |
+| **Platega** | СБП / карты (`app.platega.io`, метод настраивается) | поллинг `GET /transaction/{id}` |
+
+Флоу: тариф → выбор способа оплаты → счёт с кнопкой «Оплатить» → «Я оплатил» →
+проверка статуса у провайдера → активация тарифа в Remnawave + запись в `payments`
++ реферальный бонус. Счета хранятся в таблице `payment_invoices` (Flyway `V4`).
+
+Конфигурация — `config/payments.yml` (генерируется автоматически, okaeri-configs)
+либо переменные окружения `CRYPTOBOT_TOKEN`, `PLATEGA_MERCHANT_ID`, `PLATEGA_SECRET`
+(env переопределяет файл). Если ни один гейт не настроен, бот работает как раньше
+(активация тарифа без оплаты — удобно для дев-окружения).
+
+### Свой модуль
+
+1. Создайте Gradle-подпроект с `compileOnly(project(":core-api"))`.
+2. Реализуйте `com.tessera.core.api.BotModule` и зарегистрируйте класс в
+   `META-INF/services/com.tessera.core.api.BotModule`.
+3. Соберите shadow-jar и положите его в `modules/` — ядро подхватит его при старте.

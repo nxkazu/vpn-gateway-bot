@@ -2,7 +2,7 @@
 FROM gradle:8.11.1-jdk21 AS build
 WORKDIR /home/gradle/project
 COPY --chown=gradle:gradle . .
-RUN gradle --no-daemon shadowJar
+RUN gradle --no-daemon :app:shadowJar :payment-module:shadowJar
 
 # ---- Runtime stage -----------------------------------------------------
 FROM eclipse-temurin:21-jre-jammy
@@ -11,9 +11,16 @@ WORKDIR /app
 # Non-root runtime user
 RUN groupadd --system tessera && useradd --system --gid tessera tessera
 
-COPY --from=build /home/gradle/project/build/libs/tessera-vpn-bot.jar /app/app.jar
+COPY --from=build /home/gradle/project/app/build/libs/tessera-vpn-bot.jar /app/app.jar
+# Pluggable modules: every jar in /app/modules is loaded at startup.
+COPY --from=build /home/gradle/project/payment-module/build/libs/PaymentModule.jar /app/modules/PaymentModule.jar
+
+RUN mkdir -p /app/config && chown -R tessera:tessera /app
 
 USER tessera
 
-ENV JAVA_OPTS="-XX:MaxRAMPercentage=75.0"
+ENV JAVA_OPTS="-XX:MaxRAMPercentage=75.0" \
+    MODULES_DIR=/app/modules \
+    MODULES_CONFIG_DIR=/app/config
+
 ENTRYPOINT ["sh", "-c", "java $JAVA_OPTS -jar /app/app.jar"]
