@@ -2,11 +2,13 @@ package com.tessera.bot.bot;
 
 import com.tessera.bot.config.AppConfig;
 import com.tessera.bot.db.UserRepository;
+import com.tessera.bot.i18n.Lang;
+import com.tessera.bot.i18n.LocaleService;
+import com.tessera.bot.i18n.Messages;
 import com.tessera.bot.remnawave.RemnawaveClient;
 import com.tessera.bot.service.ReferralService;
 import com.tessera.bot.service.SubscriptionService;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import lombok.extern.slf4j.Slf4j;
 import org.telegram.telegrambots.bots.TelegramLongPollingBot;
 import org.telegram.telegrambots.meta.api.methods.AnswerCallbackQuery;
 import org.telegram.telegrambots.meta.api.methods.ParseMode;
@@ -24,27 +26,25 @@ import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
  * updates and delegates to {@link UserHandler} / {@link AdminHandler}, then renders
  * the resulting {@link Reply}.
  */
+@Slf4j
 public class TesseraBot extends TelegramLongPollingBot {
-
-    private static final Logger log = LoggerFactory.getLogger(TesseraBot.class);
 
     private final AppConfig config;
     private final UserHandler userHandler;
     private final AdminHandler adminHandler;
     private final UserRepository users;
-    private final SubscriptionService subscriptions;
-    private final ReferralService referrals;
+    private final LocaleService locales;
     private final UserState state = new UserState();
 
     public TesseraBot(AppConfig config, RemnawaveClient panel, UserRepository users,
-                      SubscriptionService subscriptions, ReferralService referrals) {
+                      SubscriptionService subscriptions, ReferralService referrals,
+                      LocaleService locales, Messages messages) {
         super(config.botToken());
         this.config = config;
         this.users = users;
-        this.subscriptions = subscriptions;
-        this.referrals = referrals;
-        this.userHandler = new UserHandler(config, users, subscriptions, referrals);
-        this.adminHandler = new AdminHandler(config, panel, users);
+        this.locales = locales;
+        this.userHandler = new UserHandler(config, users, subscriptions, referrals, locales, messages);
+        this.adminHandler = new AdminHandler(config, panel, users, messages);
     }
 
     @Override
@@ -72,7 +72,6 @@ public class TesseraBot extends TelegramLongPollingBot {
         User from = msg.getFrom();
         String text = msg.getText().trim();
 
-        // Stateful admin flows first.
         UserState.Await awaiting = state.get(chatId);
         if (awaiting != UserState.Await.NONE && adminHandler.isAdmin(from.getId())) {
             handleAdminStatefulInput(chatId, from.getId(), text, awaiting);
@@ -81,20 +80,19 @@ public class TesseraBot extends TelegramLongPollingBot {
 
         if (text.startsWith("/start")) {
             String payload = text.length() > 6 ? text.substring(6).trim() : "";
-            Reply r = userHandler.start(from.getId(),
+            send(chatId, userHandler.start(from.getId(),
                     from.getUserName(), from.getFirstName(),
-                    from.getLanguageCode(), payload);
-            send(chatId, r);
+                    from.getLanguageCode(), payload));
         } else if (text.equals("/menu")) {
             send(chatId, userHandler.mainMenuReply(from.getId()));
         } else if (text.equals("/admin")) {
             if (adminHandler.isAdmin(from.getId())) {
-                send(chatId, adminHandler.menu());
+                send(chatId, adminHandler.menu(locales.forUser(from.getId())));
             } else {
-                send(chatId, Reply.of("⛔ У вас нет доступа к админ-панели."));
+                send(chatId, userHandler.help(from.getId()));
             }
         } else if (text.equals("/help")) {
-            send(chatId, userHandler.help());
+            send(chatId, userHandler.help(from.getId()));
         } else {
             send(chatId, userHandler.mainMenuReply(from.getId()));
         }
@@ -103,13 +101,13 @@ public class TesseraBot extends TelegramLongPollingBot {
     private void handleAdminStatefulInput(long chatId, long adminId, String text, UserState.Await awaiting)
             throws TelegramApiException {
         state.clear(chatId);
+        Lang lang = locales.forUser(adminId);
         switch (awaiting) {
             case BROADCAST_TEXT -> {
                 int sent = broadcast(text);
-                send(chatId, Reply.of("📢 Рассылка отправлена: *" + sent + "* получателей.",
-                        Keyboards.backTo(Callbacks.ADMIN_MAIN)));
+                send(chatId, adminHandler.broadcastResult(lang, sent));
             }
-            case FIND_USER_QUERY -> send(chatId, adminHandler.findUser(text));
+            case FIND_USER_QUERY -> send(chatId, adminHandler.findUser(lang, text));
             default -> { /* no-op */ }
         }
     }
@@ -138,54 +136,55 @@ public class TesseraBot extends TelegramLongPollingBot {
         User from = cq.getFrom();
         long userId = from.getId();
 
-        Reply reply = route(data, userId, from, chatId);
+        Reply reply = route(data, userId, chatId);
         if (reply != null) {
             edit(chatId, messageId, reply);
         }
         execute(AnswerCallbackQuery.builder().callbackQueryId(cq.getId()).build());
     }
 
-    private Reply route(String data, long userId, User from, long chatId) {
-        // ---- user routes
+    private Reply route(String data, long userId, long chatId) {
         switch (data) {
             case Callbacks.MENU_MAIN -> { return userHandler.mainMenuReply(userId); }
-            case Callbacks.MENU_BUY -> { return userHandler.buyMenu(); }
+            case Callbacks.MENU_BUY -> { return userHandler.buyMenu(userId); }
             case Callbacks.MENU_SUB -> { return userHandler.mySubscription(userId); }
             case Callbacks.MENU_TRIAL -> { return userHandler.trial(userId); }
             case Callbacks.MENU_REFERRAL -> { return userHandler.referral(userId); }
-            case Callbacks.MENU_HELP -> { return userHandler.help(); }
+            case Callbacks.MENU_HELP -> { return userHandler.help(userId); }
+            case Callbacks.MENU_LANGUAGE -> { return userHandler.languageMenu(userId); }
             default -> { /* fall through */ }
         }
         if (data.startsWith(Callbacks.BUY_PREFIX)) {
             return userHandler.buyPlan(userId, data.substring(Callbacks.BUY_PREFIX.length()));
         }
+        if (data.startsWith(Callbacks.LANG_PREFIX)) {
+            return userHandler.setLanguage(userId, data.substring(Callbacks.LANG_PREFIX.length()));
+        }
 
-        // ---- admin routes (guarded)
         if (data.startsWith("admin:")) {
             if (!adminHandler.isAdmin(userId)) {
-                return Reply.of("⛔ Нет доступа.");
+                return userHandler.mainMenuReply(userId);
             }
-            return routeAdmin(data, chatId);
+            return routeAdmin(data, userId, chatId);
         }
         return null;
     }
 
-    private Reply routeAdmin(String data, long chatId) {
+    private Reply routeAdmin(String data, long userId, long chatId) {
+        Lang lang = locales.forUser(userId);
         switch (data) {
-            case Callbacks.ADMIN_MAIN -> { return adminHandler.menu(); }
-            case Callbacks.ADMIN_STATS -> { return adminHandler.stats(); }
-            case Callbacks.ADMIN_HEALTH -> { return adminHandler.health(); }
-            case Callbacks.ADMIN_NODES -> { return adminHandler.nodes(); }
-            case Callbacks.ADMIN_NODE_RESTART_ALL -> { return adminHandler.restartAllNodes(); }
+            case Callbacks.ADMIN_MAIN -> { return adminHandler.menu(lang); }
+            case Callbacks.ADMIN_STATS -> { return adminHandler.stats(lang); }
+            case Callbacks.ADMIN_HEALTH -> { return adminHandler.health(lang); }
+            case Callbacks.ADMIN_NODES -> { return adminHandler.nodes(lang); }
+            case Callbacks.ADMIN_NODE_RESTART_ALL -> { return adminHandler.restartAllNodes(lang); }
             case Callbacks.ADMIN_BROADCAST -> {
                 state.set(chatId, UserState.Await.BROADCAST_TEXT);
-                return Reply.of("✍️ Отправьте текст рассылки одним сообщением.",
-                        Keyboards.backTo(Callbacks.ADMIN_MAIN));
+                return adminHandler.broadcastPrompt(lang);
             }
             case Callbacks.ADMIN_FIND_USER -> {
                 state.set(chatId, UserState.Await.FIND_USER_QUERY);
-                return Reply.of("🔍 Отправьте username, Telegram ID или UUID пользователя.",
-                        Keyboards.backTo(Callbacks.ADMIN_MAIN));
+                return adminHandler.findPrompt(lang);
             }
             default -> { /* fall through */ }
         }
@@ -193,12 +192,10 @@ public class TesseraBot extends TelegramLongPollingBot {
             String rest = data.substring(Callbacks.ADMIN_USER_PREFIX.length());
             int idx = rest.indexOf(':');
             if (idx > 0) {
-                String action = rest.substring(0, idx);
-                String uuid = rest.substring(idx + 1);
-                return adminHandler.userAction(action, uuid);
+                return adminHandler.userAction(lang, rest.substring(0, idx), rest.substring(idx + 1));
             }
         }
-        return adminHandler.menu();
+        return adminHandler.menu(lang);
     }
 
     // -------------------------------------------------------------- sending
@@ -226,7 +223,6 @@ public class TesseraBot extends TelegramLongPollingBot {
             }
             execute(builder.build());
         } catch (TelegramApiException e) {
-            // Editing can fail if content is identical; fall back to a new message.
             try {
                 send(chatId, reply);
             } catch (TelegramApiException ex) {
