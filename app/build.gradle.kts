@@ -11,7 +11,7 @@ java {
 }
 
 dependencies {
-    api(project(":core-api"))
+    implementation(project(":core-api"))
 
     // Lombok (compile-time boilerplate reduction)
     compileOnly("org.projectlombok:lombok:1.18.34")
