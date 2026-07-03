@@ -10,10 +10,10 @@ public final class Plans {
     }
 
     public static final List<Plan> ALL = List.of(
-            new Plan("m1", "1 месяц", 30, 100, 149),
-            new Plan("m3", "3 месяца", 90, 300, 399),
-            new Plan("m6", "6 месяцев", 180, 600, 749),
-            new Plan("m12", "1 год", 365, 1200, 1290)
+            new Plan("m1", "1 \u043C\u0435\u0441\u044F\u0446 / 1 month", 30, 100, 149),
+            new Plan("m3", "3 \u043C\u0435\u0441\u044F\u0446\u0430 / 3 months", 90, 300, 399),
+            new Plan("m6", "6 \u043C\u0435\u0441\u044F\u0446\u0435\u0432 / 6 months", 180, 600, 749),
+            new Plan("m12", "1 \u0433\u043E\u0434 / 1 year", 365, 1200, 1290)
     );
 
     private Plans() {}
