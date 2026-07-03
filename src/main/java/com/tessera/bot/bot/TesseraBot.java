@@ -1,6 +1,7 @@
 package com.tessera.bot.bot;
 
 import com.tessera.bot.config.AppConfig;
+import com.tessera.bot.db.AuditRepository;
 import com.tessera.bot.db.UserRepository;
 import com.tessera.bot.i18n.Lang;
 import com.tessera.bot.i18n.LocaleService;
@@ -36,7 +37,7 @@ public class TesseraBot extends TelegramLongPollingBot {
     private final LocaleService locales;
     private final UserState state = new UserState();
 
-    public TesseraBot(AppConfig config, RemnawaveClient panel, UserRepository users,
+    public TesseraBot(AppConfig config, RemnawaveClient panel, UserRepository users, AuditRepository audit,
                       SubscriptionService subscriptions, ReferralService referrals,
                       LocaleService locales, Messages messages) {
         super(config.botToken());
@@ -44,7 +45,7 @@ public class TesseraBot extends TelegramLongPollingBot {
         this.users = users;
         this.locales = locales;
         this.userHandler = new UserHandler(config, users, subscriptions, referrals, locales, messages);
-        this.adminHandler = new AdminHandler(config, panel, users, messages);
+        this.adminHandler = new AdminHandler(config, panel, users, subscriptions, audit, messages);
     }
 
     @Override
@@ -100,21 +101,42 @@ public class TesseraBot extends TelegramLongPollingBot {
 
     private void handleAdminStatefulInput(long chatId, long adminId, String text, UserState.Await awaiting)
             throws TelegramApiException {
+        String payload = state.payload(chatId);
         state.clear(chatId);
         Lang lang = locales.forUser(adminId);
         switch (awaiting) {
             case BROADCAST_TEXT -> {
-                int sent = broadcast(text);
-                send(chatId, adminHandler.broadcastResult(lang, sent));
+                String segment = payload == null ? "all" : payload;
+                int count = adminHandler.recipientsForSegment(segment).size();
+                state.setPendingBroadcast(chatId, segment, text);
+                String preview = text.length() > 200 ? text.substring(0, 200) + "\u2026" : text;
+                send(chatId, adminHandler.broadcastConfirm(lang, count, preview));
             }
             case FIND_USER_QUERY -> send(chatId, adminHandler.findUser(lang, text));
+            case ADD_DAYS -> {
+                try {
+                    int days = Integer.parseInt(text.trim());
+                    send(chatId, adminHandler.applyAddDays(lang, adminId, payload, days));
+                } catch (NumberFormatException e) {
+                    send(chatId, adminHandler.badNumber(lang, payload));
+                }
+            }
+            case SET_TRAFFIC -> {
+                try {
+                    long gb = Long.parseLong(text.trim());
+                    send(chatId, adminHandler.applyTraffic(lang, adminId, payload, gb));
+                } catch (NumberFormatException e) {
+                    send(chatId, adminHandler.badNumber(lang, payload));
+                }
+            }
+            case CREATE_SUB -> send(chatId, adminHandler.applyCreateSub(lang, adminId, text));
             default -> { /* no-op */ }
         }
     }
 
-    private int broadcast(String text) {
+    private int broadcast(java.util.List<Long> recipients, String text) {
         int sent = 0;
-        for (long id : users.allTelegramIds()) {
+        for (long id : recipients) {
             try {
                 execute(SendMessage.builder().chatId(id).text(text)
                         .parseMode(ParseMode.MARKDOWN).build());
@@ -174,13 +196,30 @@ public class TesseraBot extends TelegramLongPollingBot {
         Lang lang = locales.forUser(userId);
         switch (data) {
             case Callbacks.ADMIN_MAIN -> { return adminHandler.menu(lang); }
+            case Callbacks.ADMIN_DASHBOARD -> { return adminHandler.dashboard(lang); }
             case Callbacks.ADMIN_STATS -> { return adminHandler.stats(lang); }
             case Callbacks.ADMIN_HEALTH -> { return adminHandler.health(lang); }
+            case Callbacks.ADMIN_USERS -> { return adminHandler.listUsers(lang, 0); }
+            case Callbacks.ADMIN_SQUADS -> { return adminHandler.squads(lang); }
+            case Callbacks.ADMIN_AUDIT -> { return adminHandler.audit(lang); }
+            case Callbacks.ADMIN_SETTINGS -> { return adminHandler.settings(lang); }
             case Callbacks.ADMIN_NODES -> { return adminHandler.nodes(lang); }
             case Callbacks.ADMIN_NODE_RESTART_ALL -> { return adminHandler.restartAllNodes(lang); }
-            case Callbacks.ADMIN_BROADCAST -> {
-                state.set(chatId, UserState.Await.BROADCAST_TEXT);
-                return adminHandler.broadcastPrompt(lang);
+            case Callbacks.ADMIN_BROADCAST -> { return adminHandler.broadcastMenu(lang); }
+            case Callbacks.ADMIN_CREATE_SUB -> {
+                state.set(chatId, UserState.Await.CREATE_SUB);
+                return adminHandler.createSubPrompt(lang);
+            }
+            case Callbacks.ADMIN_BC_CONFIRM -> {
+                String[] pending = state.getPendingBroadcast(chatId);
+                state.clearPendingBroadcast(chatId);
+                if (pending == null) return adminHandler.menu(lang);
+                int sent = broadcast(adminHandler.recipientsForSegment(pending[0]), pending[1]);
+                return adminHandler.broadcastResult(lang, sent);
+            }
+            case Callbacks.ADMIN_BC_CANCEL -> {
+                state.clearPendingBroadcast(chatId);
+                return adminHandler.broadcastCancelled(lang);
             }
             case Callbacks.ADMIN_FIND_USER -> {
                 state.set(chatId, UserState.Await.FIND_USER_QUERY);
@@ -188,11 +227,64 @@ public class TesseraBot extends TelegramLongPollingBot {
             }
             default -> { /* fall through */ }
         }
-        if (data.startsWith(Callbacks.ADMIN_USER_PREFIX)) {
-            String rest = data.substring(Callbacks.ADMIN_USER_PREFIX.length());
+        // Broadcast segment chosen -> ask for the message text.
+        if (data.startsWith(Callbacks.ADMIN_BC_PREFIX)) {
+            String seg = data.substring(Callbacks.ADMIN_BC_PREFIX.length());
+            state.set(chatId, UserState.Await.BROADCAST_TEXT, seg);
+            return adminHandler.broadcastPrompt(lang);
+        }
+        // Paginated user list.
+        if (data.startsWith(Callbacks.ADMIN_USERS_PAGE_PREFIX)) {
+            String p = data.substring(Callbacks.ADMIN_USERS_PAGE_PREFIX.length());
+            try { return adminHandler.listUsers(lang, Integer.parseInt(p)); }
+            catch (NumberFormatException e) { return adminHandler.listUsers(lang, 0); }
+        }
+        // Per-node actions.
+        if (data.startsWith(Callbacks.ADMIN_NODE_PREFIX)) {
+            String rest = data.substring(Callbacks.ADMIN_NODE_PREFIX.length());
             int idx = rest.indexOf(':');
             if (idx > 0) {
-                return adminHandler.userAction(lang, rest.substring(0, idx), rest.substring(idx + 1));
+                String action = rest.substring(0, idx);
+                String uuid = rest.substring(idx + 1);
+                return action.equals("card")
+                        ? adminHandler.nodeCard(lang, uuid)
+                        : adminHandler.nodeAction(lang, userId, action, uuid);
+            }
+        }
+        // Per-user actions (rich card).
+        if (data.startsWith(Callbacks.ADMIN_USER_PREFIX)) {
+            String rest = data.substring(Callbacks.ADMIN_USER_PREFIX.length());
+            String[] parts = rest.split(":");
+            if (parts.length >= 2) {
+                String action = parts[0];
+                String uuid = parts[1];
+                String extra = parts.length >= 3 ? parts[2] : null;
+                switch (action) {
+                    case "card" -> { return adminHandler.userCard(lang, uuid); }
+                    case "adddaysx" -> {
+                        state.set(chatId, UserState.Await.ADD_DAYS, uuid);
+                        return adminHandler.addDaysPrompt(lang, uuid);
+                    }
+                    case "adddays" -> {
+                        try { return adminHandler.applyAddDays(lang, userId, uuid, Integer.parseInt(extra)); }
+                        catch (NumberFormatException e) { return adminHandler.userCard(lang, uuid); }
+                    }
+                    case "traffic" -> {
+                        state.set(chatId, UserState.Await.SET_TRAFFIC, uuid);
+                        return adminHandler.trafficPrompt(lang, uuid);
+                    }
+                    case "hwid" -> { return adminHandler.hwid(lang, uuid); }
+                    case "hwiddel" -> {
+                        try { return adminHandler.deleteHwid(lang, userId, uuid, Integer.parseInt(extra)); }
+                        catch (NumberFormatException e) { return adminHandler.hwid(lang, uuid); }
+                    }
+                    case "squads" -> { return adminHandler.userSquadsView(lang, uuid); }
+                    case "squadtog" -> {
+                        try { return adminHandler.squadToggle(lang, userId, uuid, Integer.parseInt(extra)); }
+                        catch (NumberFormatException e) { return adminHandler.userSquadsView(lang, uuid); }
+                    }
+                    default -> { return adminHandler.userAction(lang, userId, action, uuid); }
+                }
             }
         }
         return adminHandler.menu(lang);
