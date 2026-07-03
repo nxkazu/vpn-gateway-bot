@@ -8,6 +8,7 @@ import com.tessera.bot.i18n.Messages;
 import com.tessera.bot.remnawave.dto.RemnawaveUser;
 import com.tessera.bot.service.PaymentService;
 import com.tessera.bot.service.Plans;
+import com.tessera.bot.service.PromoService;
 import com.tessera.bot.service.ReferralService;
 import com.tessera.bot.service.SubscriptionService;
 import com.tessera.bot.service.SupportService;
@@ -29,6 +30,7 @@ public class UserHandler {
     private final ReferralService referrals;
     private final PaymentService payments;
     private final SupportService support;
+    private final PromoService promos;
     private final LocaleService locales;
     private final Messages m;
 
@@ -106,21 +108,21 @@ public class UserHandler {
         }
         if (payments.hasProviders()) {
             return Reply.of(m.t(lang, "pay.choose", plan.title(), plan.priceRub()),
-                    Keyboards.paymentMethods(m, lang, plan.code(), payments.providers()));
+                    Keyboards.paymentMethods(m, lang, plan.code(), payments.providers(), true));
         }
         return activateDirectly(telegramId, lang, plan);
     }
 
     /** Creates an invoice with the chosen provider and shows pay / check buttons. */
-    public Reply payWith(long telegramId, String providerId, String planCode) {
+    public Reply payWith(long telegramId, String providerId, String planCode, String promoCode) {
         Lang lang = lang(telegramId);
         Plans.Plan plan = Plans.byCode(planCode);
         if (plan == null) {
             return Reply.of(m.t(lang, "plan.unknown"), Keyboards.backTo(m, lang, Callbacks.MENU_BUY));
         }
         try {
-            PaymentService.CreateResult res = payments.createInvoice(telegramId, providerId, plan);
-            return Reply.of(m.t(lang, "pay.invoice", plan.title(), plan.priceRub()),
+            PaymentService.CreateResult res = payments.createInvoice(telegramId, providerId, plan, promoCode);
+            return Reply.of(m.t(lang, "pay.invoice", plan.title(), res.priceRub()),
                     Keyboards.invoiceActions(m, lang, res.payUrl(), res.invoiceId()));
         } catch (Exception e) {
             log.error("createInvoice failed: user={} provider={} plan={}", telegramId, providerId, planCode, e);
@@ -157,7 +159,47 @@ public class UserHandler {
                 Keyboards.subscriptionActions(m, lang, u.subscriptionUrl));
     }
 
+    // --------------------------------------------------------------- promo
+
+    /** Outcome of applying a promo code: the reply to render, plus the validated code (if any). */
+    public record PromoOutcome(Reply reply, boolean valid, String code) {}
+
+    /** Asks the user to type their promo code. */
+    public Reply promoPrompt(long telegramId) {
+        Lang lang = lang(telegramId);
+        return Reply.of(m.t(lang, "promo.prompt"), Keyboards.backTo(m, lang, Callbacks.MENU_BUY));
+    }
+
+    /** Validates the typed promo code against the selected plan and re-renders the method chooser. */
+    public PromoOutcome applyPromo(long telegramId, String planCode, String rawCode) {
+        Lang lang = lang(telegramId);
+        Plans.Plan plan = Plans.byCode(planCode);
+        if (plan == null) {
+            return new PromoOutcome(
+                    Reply.of(m.t(lang, "plan.unknown"), Keyboards.backTo(m, lang, Callbacks.MENU_BUY)),
+                    false, null);
+        }
+        Optional<PromoService.Promo> promo = promos.validate(rawCode, telegramId);
+        if (promo.isEmpty()) {
+            return new PromoOutcome(
+                    Reply.of(m.t(lang, "promo.invalid"),
+                            Keyboards.paymentMethods(m, lang, plan.code(), payments.providers(), true)),
+                    false, null);
+        }
+        long discounted = PromoService.discountedRub(plan.priceRub(), promo.get().discountPercent());
+        return new PromoOutcome(
+                Reply.of(m.t(lang, "promo.applied",
+                                promo.get().code(), promo.get().discountPercent(), discounted),
+                        Keyboards.paymentMethods(m, lang, plan.code(), payments.providers(), false)),
+                true, promo.get().code());
+    }
+
     // ------------------------------------------------------------- support
+
+    /** True when the user has an open support ticket (their plain messages continue it). */
+    public boolean hasOpenTicket(long telegramId) {
+        return support.hasOpenTicket(telegramId);
+    }
 
     /** Asks the user to describe their issue (next text message goes into a ticket). */
     public Reply supportPrompt(long telegramId) {
@@ -167,8 +209,15 @@ public class UserHandler {
 
     /** Stores the user's message in their (new or open) ticket. */
     public Reply supportSubmit(long telegramId, String username, String text) {
+        return supportSubmit(telegramId, username, text, null, null);
+    }
+
+    /** Stores the user's message (optionally with an attachment) in their (new or open) ticket. */
+    public Reply supportSubmit(long telegramId, String username, String text,
+                               String attachmentFileId, String attachmentName) {
         Lang lang = lang(telegramId);
-        SupportService.Submitted s = support.submitUserMessage(telegramId, username, text);
+        SupportService.Submitted s = support.submitUserMessage(
+                telegramId, username, text, attachmentFileId, attachmentName);
         return Reply.of(m.t(lang, "support.sent", s.ticketId()),
                 Keyboards.backTo(m, lang, Callbacks.MENU_MAIN));
     }

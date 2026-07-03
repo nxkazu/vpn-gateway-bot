@@ -6,10 +6,11 @@ import com.tessera.core.api.ModuleContext;
 /**
  * Admin dashboard module: embedded web UI for support tickets (user opens a ticket in
  * the bot -> admin replies here -> reply is delivered to the user in Telegram), plan
- * management (the {@code plans} table) and basic stats.
+ * management, promo codes, stats and 30-day charts.
  *
  * Configuration (env): {@code DASHBOARD_TOKEN} (required; the UI login token),
  * {@code DASHBOARD_PORT} (default 8080), {@code DASHBOARD_BIND} (default 0.0.0.0).
+ * {@code BOT_TOKEN} is reused (read-only) to proxy Telegram file attachments.
  */
 public final class DashboardModule implements BotModule {
 
@@ -32,7 +33,8 @@ public final class DashboardModule implements BotModule {
         }
         int port = Integer.parseInt(ctx.env("DASHBOARD_PORT", "8080"));
         String bind = ctx.env("DASHBOARD_BIND", "0.0.0.0");
-        server = new DashboardServer(bind, port, token, ctx.dataSource(), ctx.notifier());
+        String botToken = ctx.env("BOT_TOKEN", "");
+        server = new DashboardServer(bind, port, token, botToken, ctx.dataSource(), ctx.notifier());
         server.start();
         LOG.log(System.Logger.Level.INFO, "Admin dashboard listening on {0}:{1}", bind, port);
     }

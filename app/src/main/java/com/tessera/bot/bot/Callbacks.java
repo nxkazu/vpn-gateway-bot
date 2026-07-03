@@ -20,6 +20,7 @@ public final class Callbacks {
     // Payments
     public static final String PAY_PREFIX = "pay:";           // pay:<providerId>:<planCode>
     public static final String PAY_CHECK_PREFIX = "paychk:";  // paychk:<invoiceId>
+    public static final String PROMO_PREFIX = "promo:";      // promo:<planCode>
 
     // Admin menu
     public static final String ADMIN_MAIN = "admin:main";

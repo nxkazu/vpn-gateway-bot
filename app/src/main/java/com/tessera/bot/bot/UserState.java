@@ -5,14 +5,14 @@ import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Tracks the transient conversational state of admins/users for multi-step flows
- * (e.g. waiting for broadcast text or a username to look up). In-memory by design;
- * flows are short-lived and safe to lose on restart.
+ * (e.g. waiting for broadcast text, a promo code, or a username to look up).
+ * In-memory by design; flows are short-lived and safe to lose on restart.
  */
 public class UserState {
 
     public enum Await {
         NONE, BROADCAST_TEXT, FIND_USER_QUERY,
-        ADD_DAYS, SET_TRAFFIC, CREATE_SUB, SUPPORT_TEXT
+        ADD_DAYS, SET_TRAFFIC, CREATE_SUB, SUPPORT_TEXT, PROMO_CODE
     }
 
     private final Map<Long, Await> awaiting = new ConcurrentHashMap<>();
@@ -21,6 +21,8 @@ public class UserState {
     private final Map<Long, String> payloads = new ConcurrentHashMap<>();
     /** A composed-but-not-yet-sent broadcast, awaiting explicit confirmation: [segment, text]. */
     private final Map<Long, String[]> pendingBroadcast = new ConcurrentHashMap<>();
+    /** A validated promo code waiting to be attached to the next created invoice. */
+    private final Map<Long, String> promoCodes = new ConcurrentHashMap<>();
 
     public void set(long chatId, Await state) { awaiting.put(chatId, state); }
     public void set(long chatId, Await state, String payload) {
@@ -37,4 +39,8 @@ public class UserState {
     }
     public String[] getPendingBroadcast(long chatId) { return pendingBroadcast.get(chatId); }
     public void clearPendingBroadcast(long chatId) { pendingBroadcast.remove(chatId); }
+
+    public void setPromo(long chatId, String code) { promoCodes.put(chatId, code); }
+    public String promo(long chatId) { return promoCodes.get(chatId); }
+    public void clearPromo(long chatId) { promoCodes.remove(chatId); }
 }

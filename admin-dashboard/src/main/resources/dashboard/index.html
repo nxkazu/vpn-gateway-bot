@@ -14,188 +14,232 @@ nav{display:flex;gap:8px}
 nav button{background:var(--card2);color:var(--text);border:1px solid #2a3145;border-radius:8px;padding:7px 14px;cursor:pointer}
 nav button.active{background:var(--acc);border-color:var(--acc);color:#fff}
 #auth{margin-left:auto;display:flex;gap:8px}
-input,textarea,select{background:var(--card2);color:var(--text);border:1px solid #2a3145;border-radius:8px;padding:7px 10px;font:inherit}
-button.primary{background:var(--acc);color:#fff;border:none;border-radius:8px;padding:7px 14px;cursor:pointer}
-button.ghost{background:transparent;color:var(--muted);border:1px solid #2a3145;border-radius:8px;padding:7px 14px;cursor:pointer}
-main{padding:20px;max-width:1100px;margin:0 auto}
-.card{background:var(--card);border:1px solid #262c3d;border-radius:12px;padding:16px;margin-bottom:16px}
-.ticket{display:flex;justify-content:space-between;gap:12px;padding:12px;border-radius:10px;cursor:pointer;border:1px solid transparent}
-.ticket:hover{background:var(--card2);border-color:#2a3145}
-.badge{font-size:11px;padding:2px 8px;border-radius:20px}
-.badge.OPEN{background:rgba(62,207,142,.15);color:var(--ok)}
-.badge.CLOSED{background:rgba(139,147,167,.15);color:var(--muted)}
-.muted{color:var(--muted);font-size:12px}
-#chatBox{display:flex;flex-direction:column;gap:8px;max-height:50vh;overflow-y:auto;padding:8px 0}
-.msg{max-width:75%;padding:8px 12px;border-radius:12px;white-space:pre-wrap}
-.msg.USER{background:var(--card2);align-self:flex-start}
-.msg.ADMIN{background:rgba(91,140,255,.2);align-self:flex-end}
-.msg .muted{display:block;margin-top:4px}
-#replyRow{display:flex;gap:8px;margin-top:12px}
-#replyText{flex:1;min-height:60px;resize:vertical}
+input,textarea,select{background:var(--card2);color:var(--text);border:1px solid #2a3145;border-radius:8px;padding:8px 10px;font:inherit}
+input::placeholder,textarea::placeholder{color:var(--muted)}
+button.pri{background:var(--acc);color:#fff;border:none;border-radius:8px;padding:8px 14px;cursor:pointer}
+button.ghost{background:var(--card2);color:var(--text);border:1px solid #2a3145;border-radius:8px;padding:8px 14px;cursor:pointer}
+button.danger{background:transparent;color:var(--danger);border:1px solid var(--danger);border-radius:8px;padding:6px 12px;cursor:pointer}
+main{padding:20px;max-width:1200px;margin:0 auto}
+.grid{display:grid;grid-template-columns:340px 1fr;gap:16px}
+.card{background:var(--card);border:1px solid #262c3d;border-radius:12px;padding:14px}
+.list{display:flex;flex-direction:column;gap:8px;max-height:70vh;overflow:auto}
+.tk{background:var(--card2);border:1px solid #2a3145;border-radius:10px;padding:10px 12px;cursor:pointer}
+.tk:hover{border-color:var(--acc)}
+.tk.sel{border-color:var(--acc);box-shadow:0 0 0 1px var(--acc)}
+.tk .sub{color:var(--muted);font-size:12px}
+.badge{display:inline-block;font-size:11px;border-radius:20px;padding:1px 8px;margin-left:6px}
+.badge.open{background:rgba(62,207,142,.15);color:var(--ok)}
+.badge.closed{background:rgba(139,147,167,.15);color:var(--muted)}
+.chat{display:flex;flex-direction:column;gap:8px;max-height:52vh;overflow:auto;padding:6px 2px}
+.msg{max-width:78%;border-radius:12px;padding:8px 12px;white-space:pre-wrap;word-break:break-word}
+.msg.user{background:var(--card2);align-self:flex-start}
+.msg.admin{background:rgba(91,140,255,.18);align-self:flex-end}
+.msg .who{font-size:11px;color:var(--muted);margin-bottom:2px}
+.msg img{max-width:280px;border-radius:8px;display:block;margin-top:6px}
+.msg a.att{color:var(--acc)}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:10px}
 table{width:100%;border-collapse:collapse}
 th,td{text-align:left;padding:8px 10px;border-bottom:1px solid #262c3d}
 th{color:var(--muted);font-weight:500;font-size:12px}
-td input{width:100%;max-width:130px}
-.statgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px}
-.stat{background:var(--card2);border-radius:10px;padding:14px}
-.stat b{font-size:24px;display:block}
-.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px}
-@media(max-width:600px){.msg{max-width:95%}}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-bottom:16px}
+.stat{background:var(--card);border:1px solid #262c3d;border-radius:12px;padding:14px;display:flex;flex-direction:column}
+.stat b{font-size:22px}
+.stat span{font-size:12px}
+.muted{color:var(--muted)}
+.bars{display:flex;align-items:flex-end;gap:3px;height:120px;margin-top:8px}
+.bars .b{flex:1;background:var(--acc);border-radius:3px 3px 0 0;min-height:2px;position:relative}
+.bars .b:hover::after{content:attr(data-tip);position:absolute;bottom:105%;left:50%;transform:translateX(-50%);background:#000;color:#fff;font-size:11px;padding:2px 6px;border-radius:6px;white-space:nowrap;z-index:5}
+h3{margin-bottom:8px}
+.hint{font-size:12px;color:var(--muted);margin-top:6px}
+@media(max-width:900px){.grid{grid-template-columns:1fr}}
 </style>
 </head>
 <body>
 <header>
   <h1>🛡 Tessera VPN — Admin</h1>
   <nav>
-    <button data-tab="tickets" class="active">🎫 Тикеты</button>
-    <button data-tab="plans">💳 Тарифы</button>
-    <button data-tab="stats">📊 Статистика</button>
+    <button id="nav-tickets" class="active" onclick="show('tickets')">🎫 Тикеты</button>
+    <button id="nav-plans" onclick="show('plans')">💼 Тарифы</button>
+    <button id="nav-promos" onclick="show('promos')">🎟 Промокоды</button>
+    <button id="nav-stats" onclick="show('stats')">📊 Статистика</button>
   </nav>
   <div id="auth">
-    <input id="token" type="password" placeholder="API token">
-    <button class="primary" onclick="saveToken()">Войти</button>
+    <input id="token" type="password" placeholder="Access token">
+    <button class="pri" onclick="saveToken()">Войти</button>
   </div>
 </header>
 <main>
-  <section id="tab-tickets">
+
+<section id="tab-tickets">
+  <div class="grid">
     <div class="card">
-      <div class="row">
-        <select id="ticketStatus" onchange="loadTickets()">
+      <div class="row" style="margin:0 0 10px">
+        <select id="tkStatus" onchange="loadTickets()">
           <option value="OPEN">Открытые</option>
           <option value="CLOSED">Закрытые</option>
           <option value="ALL">Все</option>
         </select>
-        <span class="muted">обновляется каждые 5 сек</span>
+        <button class="ghost" onclick="loadTickets()">⟳</button>
       </div>
-      <div id="ticketList"></div>
-    </div>
-    <div class="card" id="chatCard" hidden>
-      <div class="row">
-        <b id="chatTitle"></b>
-        <button class="ghost" onclick="closeTicket()">Закрыть тикет</button>
-        <button class="ghost" onclick="hideChat()">✕</button>
-      </div>
-      <div id="chatBox"></div>
-      <div id="replyRow">
-        <textarea id="replyText" placeholder="Ответ клиенту…"></textarea>
-        <button class="primary" onclick="sendReply()">Отправить</button>
-      </div>
-    </div>
-  </section>
-
-  <section id="tab-plans" hidden>
-    <div class="card">
-      <table id="planTable">
-        <thead><tr><th>Код</th><th>Название</th><th>Дней</th><th>Трафик, ГБ</th><th>Цена, ₽</th><th>Вкл</th><th>Порядок</th><th></th></tr></thead>
-        <tbody></tbody>
-      </table>
+      <div id="tkList" class="list"></div>
     </div>
     <div class="card">
-      <b>Новый / изменить тариф</b>
-      <div class="row" style="margin-top:10px">
-        <input id="p_code" placeholder="код (m1)" style="width:90px">
-        <input id="p_title" placeholder="название" style="width:220px">
-        <input id="p_days" type="number" placeholder="дней" style="width:80px">
-        <input id="p_traffic" type="number" placeholder="ГБ" style="width:80px">
-        <input id="p_price" type="number" placeholder="₽" style="width:90px">
-        <input id="p_sort" type="number" placeholder="порядок" style="width:90px">
-        <label><input id="p_enabled" type="checkbox" checked> вкл</label>
-        <button class="primary" onclick="savePlan()">Сохранить</button>
+      <div id="tkHead" class="muted">Выберите тикет слева</div>
+      <div id="chat" class="chat"></div>
+      <div class="row" id="replyRow" style="display:none">
+        <textarea id="replyText" rows="2" style="flex:1" placeholder="Ответ пользователю…"></textarea>
+        <button class="pri" onclick="sendReply()">Отправить</button>
+        <button class="danger" onclick="closeTicket()">Закрыть тикет</button>
       </div>
     </div>
-  </section>
+  </div>
+</section>
 
-  <section id="tab-stats" hidden>
-    <div class="card statgrid" id="statGrid"></div>
-  </section>
+<section id="tab-plans" hidden>
+  <div class="card">
+    <h3>💼 Тарифы</h3>
+    <table id="plansTable"><thead><tr>
+      <th>Код</th><th>Название</th><th>Дней</th><th>ГБ</th><th>Цена ₽</th><th>Вкл</th><th>Порядок</th>
+    </tr></thead><tbody></tbody></table>
+    <h3 style="margin-top:16px">Добавить / изменить</h3>
+    <div class="row">
+      <input id="p_code" placeholder="код (m1)" style="width:90px">
+      <input id="p_title" placeholder="название" style="width:220px">
+      <input id="p_days" type="number" placeholder="дней" style="width:80px">
+      <input id="p_traffic" type="number" placeholder="ГБ" style="width:80px">
+      <input id="p_price" type="number" placeholder="цена ₽" style="width:90px">
+      <input id="p_sort" type="number" placeholder="№" style="width:60px">
+      <label><input id="p_enabled" type="checkbox" checked> вкл</label>
+      <button class="pri" onclick="savePlan()">Сохранить</button>
+    </div>
+  </div>
+</section>
+
+<section id="tab-promos" hidden>
+  <div class="card">
+    <h3>🎟 Промокоды</h3>
+    <table id="promoTable"><thead><tr>
+      <th>Код</th><th>Скидка %</th><th>Исп. / макс</th><th>Действует до</th><th>Вкл</th><th></th>
+    </tr></thead><tbody></tbody></table>
+    <h3 style="margin-top:16px">Добавить / изменить</h3>
+    <div class="row">
+      <input id="pr_code" placeholder="КОД" style="width:140px">
+      <input id="pr_percent" type="number" placeholder="скидка %" style="width:100px">
+      <input id="pr_max" type="number" placeholder="макс. исп. (0=∞)" style="width:140px">
+      <input id="pr_expires" type="date">
+      <label><input id="pr_enabled" type="checkbox" checked> вкл</label>
+      <button class="pri" onclick="savePromo()">Сохранить</button>
+    </div>
+    <div class="hint">Скидка применяется к цене тарифа при оплате. Один код — одно использование на пользователя; списывается только после успешной оплаты.</div>
+  </div>
+</section>
+
+<section id="tab-stats" hidden>
+  <div class="stats" id="statGrid"></div>
+  <div class="grid" style="grid-template-columns:1fr 1fr">
+    <div class="card">
+      <h3>💰 Выручка по дням (30 дн), ₽</h3>
+      <div id="chartRevenue" class="bars"></div>
+    </div>
+    <div class="card">
+      <h3>👥 Новые пользователи по дням (30 дн)</h3>
+      <div id="chartUsers" class="bars"></div>
+    </div>
+  </div>
+</section>
+
 </main>
 <script>
 let TOKEN = localStorage.getItem('tessera_token') || '';
-let currentTicket = null;
-document.getElementById('token').value = TOKEN;
+if (TOKEN) document.getElementById('token').value = TOKEN;
+let CURRENT = null;
 
 function saveToken(){
   TOKEN = document.getElementById('token').value.trim();
   localStorage.setItem('tessera_token', TOKEN);
   refreshAll();
 }
-async function api(path, opts={}){
-  const r = await fetch(path, {...opts, headers:{'Authorization':'Bearer '+TOKEN,'Content-Type':'application/json',...(opts.headers||{})}});
-  if(r.status===401){throw new Error('Неверный токен');}
+async function api(path, opts){
+  const r = await fetch(path, Object.assign({headers:{'Authorization':'Bearer '+TOKEN,'Content-Type':'application/json'}}, opts||{}));
+  if (r.status===401){ alert('Неверный токен'); throw new Error('unauthorized'); }
   return r.json();
 }
-document.querySelectorAll('nav button').forEach(b=>b.onclick=()=>{
-  document.querySelectorAll('nav button').forEach(x=>x.classList.remove('active'));
-  b.classList.add('active');
-  ['tickets','plans','stats'].forEach(t=>document.getElementById('tab-'+t).hidden = t!==b.dataset.tab);
-  refreshAll();
-});
-function esc(s){return String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
+function show(tab){
+  for (const t of ['tickets','plans','promos','stats']){
+    document.getElementById('tab-'+t).hidden = t!==tab;
+    document.getElementById('nav-'+t).classList.toggle('active', t===tab);
+  }
+  if (tab==='stats'){ loadStats(); loadCharts(); }
+  if (tab==='plans') loadPlans();
+  if (tab==='promos') loadPromos();
+  if (tab==='tickets') loadTickets();
+}
+function esc(s){ return (s??'').toString().replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+function fmtDate(s){ return s ? new Date(s).toLocaleString('ru-RU') : ''; }
 
+/* -------- tickets -------- */
 async function loadTickets(){
   if(!TOKEN) return;
-  try{
-    const status = document.getElementById('ticketStatus').value;
-    const list = await api('/api/tickets?status='+status);
-    document.getElementById('ticketList').innerHTML = list.length ? list.map(t=>`
-      <div class="ticket" onclick="openTicket(${t.id})">
-        <div>
-          <b>#${t.id}</b> ${esc(t.username?'@'+t.username:(t.first_name||t.telegram_id))}
-          <div class="muted">${esc(t.subject||'')}</div>
-        </div>
-        <div style="text-align:right">
-          <span class="badge ${t.status}">${t.status}</span>
-          <div class="muted">${t.msg_count} сообщ. · ${new Date(t.updated_at).toLocaleString()}</div>
-        </div>
-      </div>`).join('') : '<div class="muted">Тикетов нет 🎉</div>';
-  }catch(e){ document.getElementById('ticketList').innerHTML = '<div class="muted">'+esc(e.message)+'</div>'; }
+  const status = document.getElementById('tkStatus').value;
+  const list = await api('/api/tickets?status='+status);
+  document.getElementById('tkList').innerHTML = list.map(t=>`
+    <div class="tk ${CURRENT===t.id?'sel':''}" onclick="openTicket(${t.id})">
+      <div><b>#${t.id}</b> ${esc(t.username?'@'+t.username:(t.first_name||t.telegram_id))}
+        <span class="badge ${t.status==='OPEN'?'open':'closed'}">${t.status}</span></div>
+      <div class="sub">${esc(t.subject||'')}</div>
+      <div class="sub">${fmtDate(t.updated_at)} • ${t.msg_count} сообщ.</div>
+    </div>`).join('') || '<div class="muted">Пусто</div>';
+}
+function renderAttachment(m){
+  if(!m.attachment_file_id) return '';
+  const url = '/api/file?fid='+encodeURIComponent(m.attachment_file_id)+'&t='+encodeURIComponent(TOKEN);
+  const name = (m.attachment_name||'').toLowerCase();
+  const isImg = name==='photo.jpg' || /\.(jpe?g|png|gif|webp)$/.test(name);
+  return isImg ? `<img src="${url}" alt="attachment">`
+               : `<div><a class="att" href="${url}" target="_blank">📎 ${esc(m.attachment_name||'файл')}</a></div>`;
 }
 async function openTicket(id){
-  currentTicket = id;
+  CURRENT = id;
   const d = await api('/api/ticket?id='+id);
-  document.getElementById('chatCard').hidden = false;
   const t = d.ticket;
-  document.getElementById('chatTitle').textContent = `#${t.id} — ${t.username?'@'+t.username:(t.first_name||t.telegram_id)}`;
-  document.getElementById('chatBox').innerHTML = d.messages.map(m=>`
-    <div class="msg ${m.sender}">${esc(m.body)}
-      <span class="muted">${m.sender==='ADMIN'?'👨‍💻 '+esc(m.sender_name||'admin'):'👤'} · ${new Date(m.created_at).toLocaleString()}</span>
+  document.getElementById('tkHead').innerHTML =
+    `<b>Тикет #${t.id}</b> — ${esc(t.username?'@'+t.username:(t.first_name||''))} (tg ${t.telegram_id})
+     <span class="badge ${t.status==='OPEN'?'open':'closed'}">${t.status}</span>`;
+  document.getElementById('chat').innerHTML = d.messages.map(m=>`
+    <div class="msg ${m.sender==='ADMIN'?'admin':'user'}">
+      <div class="who">${m.sender==='ADMIN'?('🛠 '+esc(m.sender_name||'admin')):('👤 '+esc(m.sender_name||'user'))} • ${fmtDate(m.created_at)}</div>
+      <div>${esc(m.body)}</div>${renderAttachment(m)}
     </div>`).join('');
-  const box = document.getElementById('chatBox'); box.scrollTop = box.scrollHeight;
+  document.getElementById('replyRow').style.display = t.status==='OPEN'?'flex':'none';
+  const c = document.getElementById('chat'); c.scrollTop = c.scrollHeight;
+  loadTickets();
 }
-function hideChat(){ document.getElementById('chatCard').hidden = true; currentTicket = null; }
 async function sendReply(){
   const text = document.getElementById('replyText').value.trim();
-  if(!text || !currentTicket) return;
-  await api('/api/reply',{method:'POST',body:JSON.stringify({ticketId:currentTicket,text})});
+  if(!text || !CURRENT) return;
+  await api('/api/reply',{method:'POST',body:JSON.stringify({ticketId:CURRENT,text})});
   document.getElementById('replyText').value='';
-  openTicket(currentTicket); loadTickets();
+  openTicket(CURRENT);
 }
 async function closeTicket(){
-  if(!currentTicket) return;
-  await api('/api/close',{method:'POST',body:JSON.stringify({ticketId:currentTicket})});
-  hideChat(); loadTickets();
+  if(!CURRENT) return;
+  await api('/api/close',{method:'POST',body:JSON.stringify({ticketId:CURRENT})});
+  openTicket(CURRENT);
 }
+
+/* -------- plans -------- */
 async function loadPlans(){
   if(!TOKEN) return;
-  try{
-    const plans = await api('/api/plans');
-    document.querySelector('#planTable tbody').innerHTML = plans.map(p=>`
-      <tr>
-        <td>${esc(p.code)}</td><td>${esc(p.title)}</td><td>${p.days}</td><td>${p.traffic_gb}</td>
-        <td>${p.price_rub}</td><td>${p.enabled?'✅':'—'}</td><td>${p.sort_order}</td>
-        <td><button class="ghost" onclick='editPlan(${JSON.stringify(p)})'>✏️</button>
-            <button class="ghost" onclick='togglePlan(${JSON.stringify(p)})'>${p.enabled?'выкл':'вкл'}</button></td>
-      </tr>`).join('');
-  }catch(e){/* noop */}
+  const plans = await api('/api/plans');
+  document.querySelector('#plansTable tbody').innerHTML = plans.map(p=>`
+    <tr onclick="fillPlan('${esc(p.code)}','${esc(p.title)}',${p.days},${p.traffic_gb},${p.price_rub},${p.enabled},${p.sort_order})" style="cursor:pointer">
+      <td>${esc(p.code)}</td><td>${esc(p.title)}</td><td>${p.days}</td><td>${p.traffic_gb}</td>
+      <td>${p.price_rub}</td><td>${p.enabled?'✅':'—'}</td><td>${p.sort_order}</td>
+    </tr>`).join('');
 }
-function editPlan(p){
-  p_code.value=p.code; p_title.value=p.title; p_days.value=p.days;
-  p_traffic.value=p.traffic_gb; p_price.value=p.price_rub; p_sort.value=p.sort_order;
-  p_enabled.checked=!!p.enabled;
-}
-async function togglePlan(p){
-  await api('/api/plans',{method:'POST',body:JSON.stringify({code:p.code,title:p.title,days:p.days,trafficGb:p.traffic_gb,priceRub:p.price_rub,enabled:!p.enabled,sortOrder:p.sort_order})});
-  loadPlans();
+function fillPlan(code,title,days,gb,price,enabled,sort){
+  p_code.value=code; p_title.value=title; p_days.value=days; p_traffic.value=gb;
+  p_price.value=price; p_enabled.checked=enabled; p_sort.value=sort;
 }
 async function savePlan(){
   if(!p_code.value.trim()) return alert('Укажите код тарифа');
@@ -204,6 +248,38 @@ async function savePlan(){
     trafficGb:+p_traffic.value||0,priceRub:+p_price.value||0,enabled:p_enabled.checked,sortOrder:+p_sort.value||0})});
   loadPlans();
 }
+
+/* -------- promos -------- */
+async function loadPromos(){
+  if(!TOKEN) return;
+  const promos = await api('/api/promos');
+  document.querySelector('#promoTable tbody').innerHTML = promos.map(p=>`
+    <tr>
+      <td><b>${esc(p.code)}</b></td><td>${p.discount_percent}%</td>
+      <td>${p.uses} / ${p.max_uses||'∞'}</td>
+      <td>${p.expires_at?fmtDate(p.expires_at):'—'}</td>
+      <td>${p.enabled?'✅':'—'}</td>
+      <td><button class="danger" onclick="deletePromo('${esc(p.code)}')">Удалить</button></td>
+    </tr>`).join('') || '<tr><td colspan="6" class="muted">Промокодов нет</td></tr>';
+}
+async function savePromo(){
+  const code = pr_code.value.trim().toUpperCase();
+  const percent = +pr_percent.value;
+  if(!code) return alert('Укажите код');
+  if(!(percent>0 && percent<100)) return alert('Скидка должна быть 1–99%');
+  await api('/api/promos',{method:'POST',body:JSON.stringify({
+    code, discountPercent:percent, maxUses:+pr_max.value||0,
+    expiresAt: pr_expires.value||null, enabled: pr_enabled.checked})});
+  pr_code.value=''; pr_percent.value=''; pr_max.value=''; pr_expires.value='';
+  loadPromos();
+}
+async function deletePromo(code){
+  if(!confirm('Удалить промокод '+code+'?')) return;
+  await api('/api/promo/delete',{method:'POST',body:JSON.stringify({code})});
+  loadPromos();
+}
+
+/* -------- stats + charts -------- */
 async function loadStats(){
   if(!TOKEN) return;
   try{
@@ -213,8 +289,23 @@ async function loadStats(){
     document.getElementById('statGrid').innerHTML = items.map(([k,v])=>`<div class="stat"><b>${v}</b><span class="muted">${k}</span></div>`).join('');
   }catch(e){/* noop */}
 }
-function refreshAll(){ loadTickets(); loadPlans(); loadStats(); }
-setInterval(()=>{ if(!document.getElementById('tab-tickets').hidden) loadTickets(); }, 5000);
+function renderBars(el, series){
+  const max = Math.max(1, ...series.map(p=>+p.amount));
+  el.innerHTML = series.map(p=>{
+    const h = Math.max(2, Math.round(112 * (+p.amount) / max));
+    return `<div class="b" style="height:${h}px" data-tip="${p.day}: ${p.amount}"></div>`;
+  }).join('') || '<div class="muted">Нет данных</div>';
+}
+async function loadCharts(){
+  if(!TOKEN) return;
+  try{
+    const ts = await api('/api/timeseries');
+    renderBars(document.getElementById('chartRevenue'), ts.revenue||[]);
+    renderBars(document.getElementById('chartUsers'), ts.users||[]);
+  }catch(e){/* noop */}
+}
+function refreshAll(){ loadTickets(); loadPlans(); loadPromos(); loadStats(); loadCharts(); }
+setInterval(()=>{ if(!document.getElementById('tab-tickets').hidden) { loadTickets(); if(CURRENT) openTicket(CURRENT); } }, 5000);
 refreshAll();
 </script>
 </body>

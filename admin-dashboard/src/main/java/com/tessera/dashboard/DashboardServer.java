@@ -10,14 +10,22 @@ import javax.sql.DataSource;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.InetSocketAddress;
+import java.net.URI;
+import java.net.URLEncoder;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
+import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.Executors;
 
 /**
  * Minimal embedded web server (JDK HttpServer, zero external deps) serving the admin
- * dashboard UI and its JSON API. All {@code /api/*} routes require the bearer token.
+ * dashboard UI and its JSON API. All {@code /api/*} routes require the bearer token
+ * (either the {@code Authorization: Bearer} header or a {@code t} query parameter —
+ * the latter exists so that attachment images can be embedded with plain {@code <img>} tags).
  */
 final class DashboardServer {
 
@@ -26,16 +34,20 @@ final class DashboardServer {
     private final String bind;
     private final int port;
     private final String token;
+    private final String botToken;
     private final DashboardDao dao;
     private final TelegramNotifier notifier;
     private final ObjectMapper json = new ObjectMapper();
+    private final HttpClient httpClient = HttpClient.newHttpClient();
 
     private HttpServer server;
 
-    DashboardServer(String bind, int port, String token, DataSource ds, TelegramNotifier notifier) {
+    DashboardServer(String bind, int port, String token, String botToken,
+                    DataSource ds, TelegramNotifier notifier) {
         this.bind = bind;
         this.port = port;
         this.token = token;
+        this.botToken = botToken;
         this.dao = new DashboardDao(ds);
         this.notifier = notifier;
     }
@@ -79,7 +91,7 @@ final class DashboardServer {
         }
     }
 
-    private void api(HttpExchange ex, String path) throws IOException {
+    private void api(HttpExchange ex, String path) throws Exception {
         String method = ex.getRequestMethod();
         Map<String, String> q = query(ex);
 
@@ -146,16 +158,89 @@ final class DashboardServer {
                     sendJson(ex, 200, Map.of("ok", true));
                 }
             }
+            case "/api/promos" -> {
+                if ("GET".equals(method)) {
+                    sendJson(ex, 200, dao.promos());
+                } else {
+                    JsonNode body = json.readTree(readBody(ex));
+                    String code = body.get("code").asText("").trim().toUpperCase();
+                    int percent = body.get("discountPercent").asInt();
+                    if (code.isEmpty() || percent <= 0 || percent >= 100) {
+                        sendJson(ex, 400, Map.of("error", "code required; discountPercent must be 1..99"));
+                        return;
+                    }
+                    dao.upsertPromo(code, percent,
+                            body.path("maxUses").asInt(0),
+                            body.hasNonNull("expiresAt") ? body.get("expiresAt").asText() : null,
+                            body.path("enabled").asBoolean(true));
+                    sendJson(ex, 200, Map.of("ok", true));
+                }
+            }
+            case "/api/promo/delete" -> {
+                requirePost(method);
+                JsonNode body = json.readTree(readBody(ex));
+                dao.deletePromo(body.get("code").asText());
+                sendJson(ex, 200, Map.of("ok", true));
+            }
             case "/api/stats" -> sendJson(ex, 200, dao.stats());
+            case "/api/timeseries" -> {
+                Map<String, Object> out = new HashMap<>();
+                out.put("revenue", dao.revenueByDay(30));
+                out.put("users", dao.newUsersByDay(30));
+                sendJson(ex, 200, out);
+            }
+            case "/api/file" -> serveTelegramFile(ex, q.get("fid"));
             default -> sendJson(ex, 404, Map.of("error", "unknown endpoint"));
         }
+    }
+
+    /** Streams a Telegram attachment (photo/document) through the bot API. */
+    private void serveTelegramFile(HttpExchange ex, String fileId) throws Exception {
+        if (botToken == null || botToken.isBlank() || fileId == null || fileId.isBlank()) {
+            sendJson(ex, 404, Map.of("error", "file unavailable"));
+            return;
+        }
+        HttpRequest meta = HttpRequest.newBuilder(URI.create(
+                "https://api.telegram.org/bot" + botToken + "/getFile?file_id="
+                        + URLEncoder.encode(fileId, StandardCharsets.UTF_8))).GET().build();
+        HttpResponse<String> metaResp = httpClient.send(meta, HttpResponse.BodyHandlers.ofString());
+        JsonNode root = json.readTree(metaResp.body());
+        if (!root.path("ok").asBoolean(false)) {
+            sendJson(ex, 404, Map.of("error", "telegram getFile failed"));
+            return;
+        }
+        String filePath = root.path("result").path("file_path").asText("");
+        HttpRequest download = HttpRequest.newBuilder(URI.create(
+                "https://api.telegram.org/file/bot" + botToken + "/" + filePath)).GET().build();
+        HttpResponse<byte[]> fileResp = httpClient.send(download, HttpResponse.BodyHandlers.ofByteArray());
+        if (fileResp.statusCode() != 200) {
+            sendJson(ex, 404, Map.of("error", "telegram file download failed"));
+            return;
+        }
+        ex.getResponseHeaders().set("Content-Type", contentTypeFor(filePath));
+        ex.getResponseHeaders().set("Cache-Control", "private, max-age=3600");
+        ex.sendResponseHeaders(200, fileResp.body().length);
+        ex.getResponseBody().write(fileResp.body());
+    }
+
+    private static String contentTypeFor(String path) {
+        String p = path.toLowerCase(Locale.ROOT);
+        if (p.endsWith(".jpg") || p.endsWith(".jpeg")) return "image/jpeg";
+        if (p.endsWith(".png")) return "image/png";
+        if (p.endsWith(".gif")) return "image/gif";
+        if (p.endsWith(".webp")) return "image/webp";
+        if (p.endsWith(".pdf")) return "application/pdf";
+        if (p.endsWith(".txt") || p.endsWith(".log")) return "text/plain; charset=utf-8";
+        return "application/octet-stream";
     }
 
     // ------------------------------------------------------------- helpers
 
     private boolean authorized(HttpExchange ex) {
         String h = ex.getRequestHeaders().getFirst("Authorization");
-        return h != null && h.equals("Bearer " + token);
+        if (h != null && h.equals("Bearer " + token)) return true;
+        String t = query(ex).get("t");
+        return t != null && t.equals(token);
     }
 
     private void requirePost(String method) {

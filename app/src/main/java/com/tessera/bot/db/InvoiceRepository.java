@@ -8,6 +8,8 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
 
 /** Data-access for {@code payment_invoices} and the {@code payments} ledger. */
@@ -19,11 +21,12 @@ public class InvoiceRepository {
 
     /** Inserts a PENDING invoice and returns its database id. */
     public long insert(long telegramId, String planCode, String provider,
-                       String externalId, String payUrl, long amountCents, String currency) {
+                       String externalId, String payUrl, long amountCents, String currency,
+                       String promoCode) {
         String sql = """
                 INSERT INTO payment_invoices
-                    (telegram_id, plan_code, provider, external_id, pay_url, amount_cents, currency)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                    (telegram_id, plan_code, provider, external_id, pay_url, amount_cents, currency, promo_code)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """;
         try (Connection c = ds.getConnection();
              PreparedStatement ps = c.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
@@ -34,6 +37,7 @@ public class InvoiceRepository {
             ps.setString(5, payUrl);
             ps.setLong(6, amountCents);
             ps.setString(7, currency);
+            ps.setString(8, promoCode);
             ps.executeUpdate();
             try (ResultSet keys = ps.getGeneratedKeys()) {
                 keys.next();
@@ -53,6 +57,26 @@ public class InvoiceRepository {
             }
         } catch (SQLException e) {
             throw new RuntimeException("find payment_invoice failed", e);
+        }
+    }
+
+    /** PENDING invoices younger than {@code maxAgeHours}, oldest first (for the background watcher). */
+    public List<PaymentInvoice> findPending(int maxAgeHours) {
+        String sql = """
+                SELECT * FROM payment_invoices
+                WHERE status = 'PENDING' AND created_at > now() - make_interval(hours => ?)
+                ORDER BY id
+                LIMIT 200
+                """;
+        try (Connection c = ds.getConnection(); PreparedStatement ps = c.prepareStatement(sql)) {
+            ps.setInt(1, maxAgeHours);
+            try (ResultSet rs = ps.executeQuery()) {
+                List<PaymentInvoice> out = new ArrayList<>();
+                while (rs.next()) out.add(map(rs));
+                return out;
+            }
+        } catch (SQLException e) {
+            throw new RuntimeException("findPending failed", e);
         }
     }
 
@@ -98,6 +122,7 @@ public class InvoiceRepository {
                 rs.getString("pay_url"),
                 rs.getLong("amount_cents"),
                 rs.getString("currency"),
-                rs.getString("status"));
+                rs.getString("status"),
+                rs.getString("promo_code"));
     }
 }

@@ -207,10 +207,14 @@ public final class Keyboards {
 
     /** Payment-method chooser shown after a plan is selected. */
     public static InlineKeyboardMarkup paymentMethods(Messages m, Lang lang, String planCode,
-                                                      java.util.List<com.tessera.core.api.PaymentProvider> providers) {
+                                                      java.util.List<com.tessera.core.api.PaymentProvider> providers,
+                                                      boolean showPromo) {
         List<List<InlineKeyboardButton>> rows = new ArrayList<>();
         for (com.tessera.core.api.PaymentProvider p : providers) {
             rows.add(List.of(btn(p.displayName(), Callbacks.PAY_PREFIX + p.id() + ":" + planCode)));
+        }
+        if (showPromo) {
+            rows.add(List.of(btn(m.t(lang, "btn.promo"), Callbacks.PROMO_PREFIX + planCode)));
         }
         rows.add(List.of(btn(m.t(lang, "btn.back"), Callbacks.MENU_BUY)));
         return InlineKeyboardMarkup.builder().keyboard(rows).build();

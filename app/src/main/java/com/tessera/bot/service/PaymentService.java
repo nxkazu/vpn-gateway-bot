@@ -20,12 +20,13 @@ import java.util.Optional;
  * Registry of {@link PaymentProvider}s (contributed by payment modules) plus the
  * invoice lifecycle: create -> user pays -> check -> activate plan + reward referral.
  * If no providers are registered the bot falls back to direct (free) activation,
- * preserving pre-payments behaviour.
+ * preserving pre-payments behaviour. Promo codes discount the invoice amount and are
+ * redeemed exactly once, when the invoice is first confirmed as paid.
  */
 @Slf4j
 public class PaymentService {
 
-    public record CreateResult(long invoiceId, String payUrl, Plans.Plan plan) {}
+    public record CreateResult(long invoiceId, String payUrl, Plans.Plan plan, long priceRub) {}
 
     public sealed interface CheckOutcome {
         record Paid(RemnawaveUser user, Plans.Plan plan) implements CheckOutcome {}
@@ -38,13 +39,16 @@ public class PaymentService {
     private final InvoiceRepository invoices;
     private final SubscriptionService subscriptions;
     private final ReferralService referrals;
+    private final PromoService promos;
 
     public PaymentService(AppConfig config, InvoiceRepository invoices,
-                          SubscriptionService subscriptions, ReferralService referrals) {
+                          SubscriptionService subscriptions, ReferralService referrals,
+                          PromoService promos) {
         this.config = config;
         this.invoices = invoices;
         this.subscriptions = subscriptions;
         this.referrals = referrals;
+        this.promos = promos;
     }
 
     /** Called by payment modules (via ModuleContext) during startup. */
@@ -65,27 +69,48 @@ public class PaymentService {
         return Optional.ofNullable(providers.get(id));
     }
 
-    /** Creates a provider invoice and persists it locally as PENDING. */
-    public CreateResult createInvoice(long telegramId, String providerId, Plans.Plan plan) throws Exception {
+    /**
+     * Creates a provider invoice and persists it locally as PENDING. When a valid promo
+     * code is supplied the price is discounted; invalid/expired codes are ignored.
+     */
+    public CreateResult createInvoice(long telegramId, String providerId, Plans.Plan plan,
+                                      String promoCode) throws Exception {
         PaymentProvider provider = byId(providerId)
                 .orElseThrow(() -> new IllegalArgumentException("Unknown payment provider: " + providerId));
-        long amountMinor = plan.priceRub() * 100L;
+
+        long priceRub = plan.priceRub();
+        String appliedPromo = null;
+        if (promoCode != null && promos != null) {
+            Optional<PromoService.Promo> p = promos.validate(promoCode, telegramId);
+            if (p.isPresent()) {
+                priceRub = PromoService.discountedRub(priceRub, p.get().discountPercent());
+                appliedPromo = p.get().code();
+            }
+        }
+
+        long amountMinor = priceRub * 100L;
         PaymentRequest request = new PaymentRequest(
                 telegramId, plan.code(), plan.title(), amountMinor, "RUB",
-                "Tessera VPN — " + plan.title(),
+                "Tessera VPN \u2014 " + plan.title(),
                 "https://t.me/" + config.botUsername());
         CreatedInvoice created = provider.createInvoice(request);
         long id = invoices.insert(telegramId, plan.code(), provider.id(),
-                created.externalId(), created.payUrl(), amountMinor, "RUB");
-        log.info("Invoice {} created: user={} plan={} provider={} ext={}",
-                id, telegramId, plan.code(), provider.id(), created.externalId());
-        return new CreateResult(id, created.payUrl(), plan);
+                created.externalId(), created.payUrl(), amountMinor, "RUB", appliedPromo);
+        log.info("Invoice {} created: user={} plan={} provider={} ext={} promo={}",
+                id, telegramId, plan.code(), provider.id(), created.externalId(), appliedPromo);
+        return new CreateResult(id, created.payUrl(), plan, priceRub);
+    }
+
+    /** Backwards-compatible overload without a promo code. */
+    public CreateResult createInvoice(long telegramId, String providerId, Plans.Plan plan) throws Exception {
+        return createInvoice(telegramId, providerId, plan, null);
     }
 
     /**
      * Re-checks an invoice with its provider. On first confirmation of payment the plan
-     * is activated, the invoice marked PAID, a payments ledger row written, and the
-     * referral reward triggered. Idempotent for already-PAID invoices.
+     * is activated, the invoice marked PAID, a payments ledger row written, the promo
+     * code (if any) redeemed, and the referral reward triggered. Idempotent for
+     * already-PAID invoices.
      */
     public CheckOutcome checkAndActivate(long telegramId, long invoiceId) throws Exception {
         Optional<PaymentInvoice> found = invoices.find(invoiceId);
@@ -113,6 +138,9 @@ public class PaymentService {
                 invoices.markStatus(invoiceId, "PAID");
                 invoices.recordPayment(telegramId, plan.code(), inv.amountCents(), inv.currency(),
                         plan.days(), inv.provider(), inv.externalId());
+                if (promos != null && inv.promoCode() != null) {
+                    promos.redeemOnPaid(inv.promoCode(), telegramId, invoiceId);
+                }
                 referrals.rewardOnActivation(telegramId).ifPresent(refId ->
                         log.info("Referral reward granted to {} for paid activation by {}", refId, telegramId));
                 log.info("Invoice {} PAID; plan {} activated for {}", invoiceId, plan.code(), telegramId);

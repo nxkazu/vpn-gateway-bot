@@ -44,9 +44,13 @@ public class TicketRepository {
         }
     }
 
-    /** Appends a message to a ticket and bumps the ticket's {@code updated_at}. */
-    public void addMessage(long ticketId, String sender, String senderName, String body) {
-        String insert = "INSERT INTO support_messages (ticket_id, sender, sender_name, body) VALUES (?, ?, ?, ?)";
+    /** Appends a message (optionally with an attachment) and bumps the ticket's {@code updated_at}. */
+    public void addMessage(long ticketId, String sender, String senderName, String body,
+                           String attachmentFileId, String attachmentName) {
+        String insert = """
+                INSERT INTO support_messages (ticket_id, sender, sender_name, body, attachment_file_id, attachment_name)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """;
         String touch = "UPDATE support_tickets SET updated_at = now() WHERE id = ?";
         try (Connection c = ds.getConnection()) {
             try (PreparedStatement ps = c.prepareStatement(insert)) {
@@ -54,6 +58,8 @@ public class TicketRepository {
                 ps.setString(2, sender);
                 ps.setString(3, senderName);
                 ps.setString(4, body);
+                ps.setString(5, attachmentFileId);
+                ps.setString(6, attachmentName);
                 ps.executeUpdate();
             }
             try (PreparedStatement ps = c.prepareStatement(touch)) {
@@ -63,5 +69,10 @@ public class TicketRepository {
         } catch (SQLException e) {
             throw new RuntimeException("addMessage failed", e);
         }
+    }
+
+    /** Backwards-compatible overload without an attachment. */
+    public void addMessage(long ticketId, String sender, String senderName, String body) {
+        addMessage(ticketId, sender, senderName, body, null, null);
     }
 }

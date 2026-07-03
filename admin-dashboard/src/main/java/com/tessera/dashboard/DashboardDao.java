@@ -5,12 +5,14 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.sql.Timestamp;
+import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-/** Plain-JDBC data access for the dashboard (tickets, plans, stats). */
+/** Plain-JDBC data access for the dashboard (tickets, plans, promos, stats, charts). */
 final class DashboardDao {
 
     private final DataSource ds;
@@ -60,7 +62,10 @@ final class DashboardDao {
     }
 
     List<Map<String, Object>> messages(long ticketId) {
-        String sql = "SELECT id, sender, sender_name, body, created_at FROM support_messages WHERE ticket_id = ? ORDER BY id";
+        String sql = """
+                SELECT id, sender, sender_name, body, attachment_file_id, attachment_name, created_at
+                FROM support_messages WHERE ticket_id = ? ORDER BY id
+                """;
         try (Connection c = ds.getConnection(); PreparedStatement ps = c.prepareStatement(sql)) {
             ps.setLong(1, ticketId);
             try (ResultSet rs = ps.executeQuery()) {
@@ -137,6 +142,56 @@ final class DashboardDao {
         }
     }
 
+    // -------------------------------------------------------------- promos
+
+    List<Map<String, Object>> promos() {
+        String sql = """
+                SELECT code, discount_percent, max_uses, uses, expires_at, enabled, created_at
+                FROM promo_codes ORDER BY created_at DESC LIMIT 500
+                """;
+        try (Connection c = ds.getConnection(); PreparedStatement ps = c.prepareStatement(sql);
+             ResultSet rs = ps.executeQuery()) {
+            return rows(rs);
+        } catch (SQLException e) {
+            throw new RuntimeException("promos query failed", e);
+        }
+    }
+
+    void upsertPromo(String code, int discountPercent, int maxUses, String expiresAtIso, boolean enabled) {
+        String sql = """
+                INSERT INTO promo_codes (code, discount_percent, max_uses, expires_at, enabled)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT (code) DO UPDATE SET
+                    discount_percent = EXCLUDED.discount_percent, max_uses = EXCLUDED.max_uses,
+                    expires_at = EXCLUDED.expires_at, enabled = EXCLUDED.enabled
+                """;
+        try (Connection c = ds.getConnection(); PreparedStatement ps = c.prepareStatement(sql)) {
+            ps.setString(1, code);
+            ps.setInt(2, discountPercent);
+            ps.setInt(3, maxUses);
+            if (expiresAtIso == null || expiresAtIso.isBlank()) {
+                ps.setNull(4, java.sql.Types.TIMESTAMP_WITH_TIMEZONE);
+            } else {
+                ps.setObject(4, OffsetDateTime.parse(expiresAtIso.length() == 10
+                        ? expiresAtIso + "T23:59:59Z" : expiresAtIso));
+            }
+            ps.setBoolean(5, enabled);
+            ps.executeUpdate();
+        } catch (SQLException e) {
+            throw new RuntimeException("upsertPromo failed", e);
+        }
+    }
+
+    void deletePromo(String code) {
+        try (Connection c = ds.getConnection(); PreparedStatement ps = c.prepareStatement(
+                "DELETE FROM promo_codes WHERE code = ?")) {
+            ps.setString(1, code);
+            ps.executeUpdate();
+        } catch (SQLException e) {
+            throw new RuntimeException("deletePromo failed", e);
+        }
+    }
+
     // --------------------------------------------------------------- stats
 
     Map<String, Object> stats() {
@@ -148,6 +203,41 @@ final class DashboardDao {
         out.put("revenueRub30d", scalarLong(
                 "SELECT COALESCE(SUM(amount_cents), 0) / 100 FROM payment_invoices WHERE status = 'PAID' AND created_at > now() - interval '30 days'"));
         return out;
+    }
+
+    /** Daily revenue (rubles) from the payments ledger over the trailing window. */
+    List<Map<String, Object>> revenueByDay(int days) {
+        String sql = """
+                SELECT to_char(date_trunc('day', created_at), 'YYYY-MM-DD') AS day,
+                       COALESCE(SUM(amount_cents), 0) / 100 AS amount
+                FROM payments
+                WHERE created_at > now() - make_interval(days => ?)
+                GROUP BY 1 ORDER BY 1
+                """;
+        return series(sql, days);
+    }
+
+    /** Daily new bot users over the trailing window. */
+    List<Map<String, Object>> newUsersByDay(int days) {
+        String sql = """
+                SELECT to_char(date_trunc('day', created_at), 'YYYY-MM-DD') AS day,
+                       COUNT(*) AS amount
+                FROM bot_users
+                WHERE created_at > now() - make_interval(days => ?)
+                GROUP BY 1 ORDER BY 1
+                """;
+        return series(sql, days);
+    }
+
+    private List<Map<String, Object>> series(String sql, int days) {
+        try (Connection c = ds.getConnection(); PreparedStatement ps = c.prepareStatement(sql)) {
+            ps.setInt(1, days);
+            try (ResultSet rs = ps.executeQuery()) {
+                return rows(rs);
+            }
+        } catch (SQLException e) {
+            throw new RuntimeException("timeseries query failed", e);
+        }
     }
 
     private long scalarLong(String sql) {
@@ -169,7 +259,7 @@ final class DashboardDao {
             Map<String, Object> row = new LinkedHashMap<>();
             for (int i = 1; i <= cols; i++) {
                 Object v = rs.getObject(i);
-                if (v instanceof java.sql.Timestamp ts) v = ts.toInstant().toString();
+                if (v instanceof Timestamp ts) v = ts.toInstant().toString();
                 row.put(meta.getColumnLabel(i).toLowerCase(), v);
             }
             out.add(row);

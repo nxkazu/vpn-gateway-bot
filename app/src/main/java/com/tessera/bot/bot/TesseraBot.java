@@ -8,6 +8,7 @@ import com.tessera.bot.i18n.LocaleService;
 import com.tessera.bot.i18n.Messages;
 import com.tessera.bot.remnawave.RemnawaveClient;
 import com.tessera.bot.service.PaymentService;
+import com.tessera.bot.service.PromoService;
 import com.tessera.bot.service.ReferralService;
 import com.tessera.bot.service.SubscriptionService;
 import com.tessera.bot.service.SupportService;
@@ -19,10 +20,13 @@ import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
 import org.telegram.telegrambots.meta.api.methods.updatingmessages.EditMessageText;
 import org.telegram.telegrambots.meta.api.objects.CallbackQuery;
 import org.telegram.telegrambots.meta.api.objects.Message;
+import org.telegram.telegrambots.meta.api.objects.PhotoSize;
 import org.telegram.telegrambots.meta.api.objects.Update;
 import org.telegram.telegrambots.meta.api.objects.User;
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.InlineKeyboardMarkup;
 import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
+
+import java.util.List;
 
 /**
  * The Telegram long-polling bot. Acts as a thin router: it extracts intent from
@@ -41,13 +45,14 @@ public class TesseraBot extends TelegramLongPollingBot {
 
     public TesseraBot(AppConfig config, RemnawaveClient panel, UserRepository users, AuditRepository audit,
                       SubscriptionService subscriptions, ReferralService referrals,
-                      PaymentService payments, SupportService support,
+                      PaymentService payments, SupportService support, PromoService promos,
                       LocaleService locales, Messages messages) {
         super(config.botToken());
         this.config = config;
         this.users = users;
         this.locales = locales;
-        this.userHandler = new UserHandler(config, users, subscriptions, referrals, payments, support, locales, messages);
+        this.userHandler = new UserHandler(config, users, subscriptions, referrals,
+                payments, support, promos, locales, messages);
         this.adminHandler = new AdminHandler(config, panel, users, subscriptions, audit, messages);
     }
 
@@ -63,6 +68,9 @@ public class TesseraBot extends TelegramLongPollingBot {
                 handleCallback(update.getCallbackQuery());
             } else if (update.hasMessage() && update.getMessage().hasText()) {
                 handleMessage(update.getMessage());
+            } else if (update.hasMessage()
+                    && (update.getMessage().hasPhoto() || update.getMessage().hasDocument())) {
+                handleMedia(update.getMessage());
             }
         } catch (Exception e) {
             log.error("Error handling update", e);
@@ -80,6 +88,16 @@ public class TesseraBot extends TelegramLongPollingBot {
         if (awaiting == UserState.Await.SUPPORT_TEXT) {
             state.clear(chatId);
             send(chatId, userHandler.supportSubmit(from.getId(), from.getUserName(), text));
+            return;
+        }
+        if (awaiting == UserState.Await.PROMO_CODE) {
+            String planCode = state.payload(chatId);
+            state.clear(chatId);
+            UserHandler.PromoOutcome out = userHandler.applyPromo(from.getId(), planCode, text);
+            if (out.valid()) {
+                state.setPromo(chatId, out.code());
+            }
+            send(chatId, out.reply());
             return;
         }
         if (awaiting != UserState.Await.NONE && adminHandler.isAdmin(from.getId())) {
@@ -102,9 +120,45 @@ public class TesseraBot extends TelegramLongPollingBot {
             }
         } else if (text.equals("/help")) {
             send(chatId, userHandler.help(from.getId()));
+        } else if (userHandler.hasOpenTicket(from.getId())) {
+            // Chat-style support: while a ticket is open, plain messages continue it.
+            send(chatId, userHandler.supportSubmit(from.getId(), from.getUserName(), text));
         } else {
             send(chatId, userHandler.mainMenuReply(from.getId()));
         }
+    }
+
+    /** Photos/documents: routed into the support ticket when the user is in a support context. */
+    private void handleMedia(Message msg) throws TelegramApiException {
+        long chatId = msg.getChatId();
+        User from = msg.getFrom();
+        String caption = msg.getCaption() != null ? msg.getCaption().trim() : "";
+
+        String fileId;
+        String fileName;
+        if (msg.hasPhoto()) {
+            List<PhotoSize> photos = msg.getPhoto();
+            PhotoSize largest = photos.get(photos.size() - 1);
+            fileId = largest.getFileId();
+            fileName = "photo.jpg";
+        } else {
+            fileId = msg.getDocument().getFileId();
+            fileName = msg.getDocument().getFileName() != null
+                    ? msg.getDocument().getFileName() : "document";
+        }
+
+        UserState.Await awaiting = state.get(chatId);
+        boolean inSupport = awaiting == UserState.Await.SUPPORT_TEXT
+                || userHandler.hasOpenTicket(from.getId());
+        if (!inSupport) {
+            send(chatId, userHandler.mainMenuReply(from.getId()));
+            return;
+        }
+        if (awaiting == UserState.Await.SUPPORT_TEXT) {
+            state.clear(chatId);
+        }
+        send(chatId, userHandler.supportSubmit(from.getId(), from.getUserName(),
+                caption, fileId, fileName));
     }
 
     private void handleAdminStatefulInput(long chatId, long adminId, String text, UserState.Await awaiting)
@@ -176,7 +230,10 @@ public class TesseraBot extends TelegramLongPollingBot {
     private Reply route(String data, long userId, long chatId) {
         switch (data) {
             case Callbacks.MENU_MAIN -> { return userHandler.mainMenuReply(userId); }
-            case Callbacks.MENU_BUY -> { return userHandler.buyMenu(userId); }
+            case Callbacks.MENU_BUY -> {
+                state.clearPromo(chatId);
+                return userHandler.buyMenu(userId);
+            }
             case Callbacks.MENU_SUB -> { return userHandler.mySubscription(userId); }
             case Callbacks.MENU_TRIAL -> { return userHandler.trial(userId); }
             case Callbacks.MENU_REFERRAL -> { return userHandler.referral(userId); }
@@ -191,11 +248,19 @@ public class TesseraBot extends TelegramLongPollingBot {
         if (data.startsWith(Callbacks.BUY_PREFIX)) {
             return userHandler.buyPlan(userId, data.substring(Callbacks.BUY_PREFIX.length()));
         }
+        if (data.startsWith(Callbacks.PROMO_PREFIX)) {
+            String planCode = data.substring(Callbacks.PROMO_PREFIX.length());
+            state.set(chatId, UserState.Await.PROMO_CODE, planCode);
+            return userHandler.promoPrompt(userId);
+        }
         if (data.startsWith(Callbacks.PAY_PREFIX)) {
             String rest = data.substring(Callbacks.PAY_PREFIX.length());
             int sep = rest.indexOf(':');
             if (sep > 0) {
-                return userHandler.payWith(userId, rest.substring(0, sep), rest.substring(sep + 1));
+                String promo = state.promo(chatId);
+                Reply reply = userHandler.payWith(userId, rest.substring(0, sep), rest.substring(sep + 1), promo);
+                state.clearPromo(chatId);
+                return reply;
             }
         }
         if (data.startsWith(Callbacks.PAY_CHECK_PREFIX)) {

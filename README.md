@@ -174,3 +174,35 @@ tessera-vpn-bot
 
 ⚠️ Дашборд защищён только bearer-токеном — не публикуйте порт в интернет без
 reverse-proxy с TLS (например, за nginx/caddy) или ограничьте доступ фаерволом.
+## Update 3 — promo codes, auto-payment checks, expiry notices, ticket attachments, charts
+
+- **Platega provider verified against the official docs** (docs.platega.io): the transaction
+  id is now taken from the API response (`transactionId`) instead of being generated
+  client-side, anti-fraud `metadata` (`userId` = Telegram id) and the required `payload`
+  field are sent, and the status mapping follows the documented enum
+  (`PENDING / CANCELED / CONFIRMED / CHARGEBACKED`). Unknown statuses are treated as
+  pending — a payment is never activated by guesswork.
+- **Automatic payment confirmation**: a background watcher re-checks PENDING invoices
+  every `PAYMENT_CHECK_SECONDS` (default 60 s) so subscriptions activate without the
+  user pressing “I paid”. The user gets a localized confirmation message.
+- **Expiry notifications**: subscriptions expiring within `EXPIRY_NOTIFY_DAYS`
+  (default 3) trigger a one-time localized warning, re-armed automatically when the
+  subscription is extended (dedup via the `expiry_notices` table).
+- **Promo codes**: created/managed in the dashboard (🎟 tab). A code has a percent
+  discount, optional max-use count and expiry date; one use per user, counted only when
+  the discounted invoice is actually paid. In the bot the user taps “🎟 Promo code” on
+  the payment-method screen and types the code.
+- **Support upgrades**: photos and documents can be attached to tickets (rendered in
+  the dashboard chat via a Telegram file proxy); while a ticket is open, any plain
+  message from the user continues the conversation; admins are notified in Telegram
+  about new tickets and new user messages.
+- **Dashboard charts**: daily revenue and daily new users for the last 30 days on the
+  stats tab.
+- **i18n**: payment, support and promo strings translated for all six languages
+  (en, ru, de, es, fr, zh).
+- **Tests**: `PromoServiceTest` (validation + discount math) and `PlategaProviderTest`
+  (status mapping).
+
+> ⚠️ Security note: the dashboard also accepts the access token as a `t=` query
+> parameter (needed for embedding attachment images). Keep the dashboard behind a
+> reverse proxy with TLS and restrict access at the network level.
