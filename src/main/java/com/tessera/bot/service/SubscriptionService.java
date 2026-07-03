@@ -6,8 +6,8 @@ import com.tessera.bot.db.model.BotUser;
 import com.tessera.bot.remnawave.RemnawaveClient;
 import com.tessera.bot.remnawave.dto.CreateUserRequest;
 import com.tessera.bot.remnawave.dto.RemnawaveUser;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
@@ -18,19 +18,13 @@ import java.util.Optional;
  * Orchestrates VPN account lifecycle by combining the local bot database with the
  * Remnawave panel. A "subscription" is a Remnawave user whose {@code expireAt} is in the future.
  */
+@Slf4j
+@RequiredArgsConstructor
 public class SubscriptionService {
-
-    private static final Logger log = LoggerFactory.getLogger(SubscriptionService.class);
 
     private final AppConfig config;
     private final RemnawaveClient panel;
     private final UserRepository users;
-
-    public SubscriptionService(AppConfig config, RemnawaveClient panel, UserRepository users) {
-        this.config = config;
-        this.panel = panel;
-        this.users = users;
-    }
 
     /** Returns the Remnawave account for a Telegram user, resolving via stored uuid or telegramId. */
     public Optional<RemnawaveUser> currentSubscription(long telegramId) {
