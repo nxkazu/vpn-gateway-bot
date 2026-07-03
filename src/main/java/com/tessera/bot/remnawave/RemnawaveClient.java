@@ -95,6 +95,44 @@ public class RemnawaveClient {
         return node != null && node.has("total") ? node.get("total").asLong() : 0L;
     }
 
+    /** Paginated user listing. Returns the raw response node (expects {@code users} array + {@code total}). */
+    public JsonNode listUsers(int size, int start) {
+        return get("/api/users?size=" + size + "&start=" + start);
+    }
+
+    /** Sets an absolute traffic limit (in bytes; 0 = unlimited) for a user. */
+    public RemnawaveUser setTrafficLimit(String uuid, long limitBytes) {
+        var body = mapper.createObjectNode();
+        body.put("uuid", uuid);
+        body.put("trafficLimitBytes", limitBytes);
+        return convert(patch("/api/users", body), RemnawaveUser.class);
+    }
+
+    /** Replaces the set of internal squads a user belongs to. */
+    public RemnawaveUser setUserSquads(String uuid, java.util.List<String> squadUuids) {
+        var body = mapper.createObjectNode();
+        body.put("uuid", uuid);
+        var arr = body.putArray("activeInternalSquads");
+        for (String s : squadUuids) arr.add(s);
+        return convert(patch("/api/users", body), RemnawaveUser.class);
+    }
+
+    // -------------------------------------------------------------- HWID devices
+
+    /** Lists the HWID (hardware) devices bound to a user. */
+    public JsonNode getUserHwidDevices(String userUuid) {
+        return get("/api/hwid/devices/" + userUuid);
+    }
+
+    /** Removes a single bound HWID device from a user. */
+    public void deleteHwidDevice(String userUuid, String hwid) {
+        var body = mapper.createObjectNode();
+        body.put("userUuid", userUuid);
+        body.put("hwid", hwid);
+        Request req = baseRequest("/api/hwid/devices").delete(toBody(body)).build();
+        execute(req);
+    }
+
     // ---------------------------------------------------------------- system
 
     public SystemStats systemStats() {
@@ -107,6 +145,7 @@ public class RemnawaveClient {
     // ----------------------------------------------------------------- nodes
 
     public JsonNode getNodes() { return get("/api/nodes"); }
+    public JsonNode getNode(String uuid) { return get("/api/nodes/" + uuid); }
     public void restartAllNodes() { post("/api/nodes/actions/restart-all", null); }
     public void enableNode(String uuid)  { post("/api/nodes/" + uuid + "/actions/enable", null); }
     public void disableNode(String uuid) { post("/api/nodes/" + uuid + "/actions/disable", null); }
