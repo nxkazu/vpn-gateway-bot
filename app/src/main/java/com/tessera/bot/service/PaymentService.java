@@ -7,7 +7,7 @@ import com.tessera.core.api.CreatedInvoice;
 import com.tessera.core.api.InvoiceStatus;
 import com.tessera.core.api.PaymentProvider;
 import com.tessera.core.api.PaymentRequest;
-import com.tessera.remnawave.dto.RemnawaveUser;
+import com.tessera.bot.remnawave.dto.RemnawaveUser;
 import lombok.extern.slf4j.Slf4j;
 
 import java.util.ArrayList;
