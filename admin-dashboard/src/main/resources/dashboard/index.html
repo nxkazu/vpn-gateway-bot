@@ -1,0 +1,221 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Tessera VPN — Admin</title>
+<style>
+:root{--bg:#0f1219;--card:#181d29;--card2:#1f2534;--text:#e6e9f0;--muted:#8b93a7;--acc:#5b8cff;--ok:#3ecf8e;--warn:#ffb454;--danger:#ff6b6b}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font:14px/1.5 -apple-system,Segoe UI,Roboto,sans-serif;min-height:100vh}
+header{display:flex;align-items:center;gap:16px;padding:14px 20px;background:var(--card);border-bottom:1px solid #262c3d;flex-wrap:wrap}
+header h1{font-size:16px;font-weight:600}
+nav{display:flex;gap:8px}
+nav button{background:var(--card2);color:var(--text);border:1px solid #2a3145;border-radius:8px;padding:7px 14px;cursor:pointer}
+nav button.active{background:var(--acc);border-color:var(--acc);color:#fff}
+#auth{margin-left:auto;display:flex;gap:8px}
+input,textarea,select{background:var(--card2);color:var(--text);border:1px solid #2a3145;border-radius:8px;padding:7px 10px;font:inherit}
+button.primary{background:var(--acc);color:#fff;border:none;border-radius:8px;padding:7px 14px;cursor:pointer}
+button.ghost{background:transparent;color:var(--muted);border:1px solid #2a3145;border-radius:8px;padding:7px 14px;cursor:pointer}
+main{padding:20px;max-width:1100px;margin:0 auto}
+.card{background:var(--card);border:1px solid #262c3d;border-radius:12px;padding:16px;margin-bottom:16px}
+.ticket{display:flex;justify-content:space-between;gap:12px;padding:12px;border-radius:10px;cursor:pointer;border:1px solid transparent}
+.ticket:hover{background:var(--card2);border-color:#2a3145}
+.badge{font-size:11px;padding:2px 8px;border-radius:20px}
+.badge.OPEN{background:rgba(62,207,142,.15);color:var(--ok)}
+.badge.CLOSED{background:rgba(139,147,167,.15);color:var(--muted)}
+.muted{color:var(--muted);font-size:12px}
+#chatBox{display:flex;flex-direction:column;gap:8px;max-height:50vh;overflow-y:auto;padding:8px 0}
+.msg{max-width:75%;padding:8px 12px;border-radius:12px;white-space:pre-wrap}
+.msg.USER{background:var(--card2);align-self:flex-start}
+.msg.ADMIN{background:rgba(91,140,255,.2);align-self:flex-end}
+.msg .muted{display:block;margin-top:4px}
+#replyRow{display:flex;gap:8px;margin-top:12px}
+#replyText{flex:1;min-height:60px;resize:vertical}
+table{width:100%;border-collapse:collapse}
+th,td{text-align:left;padding:8px 10px;border-bottom:1px solid #262c3d}
+th{color:var(--muted);font-weight:500;font-size:12px}
+td input{width:100%;max-width:130px}
+.statgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px}
+.stat{background:var(--card2);border-radius:10px;padding:14px}
+.stat b{font-size:24px;display:block}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px}
+@media(max-width:600px){.msg{max-width:95%}}
+</style>
+</head>
+<body>
+<header>
+  <h1>🛡 Tessera VPN — Admin</h1>
+  <nav>
+    <button data-tab="tickets" class="active">🎫 Тикеты</button>
+    <button data-tab="plans">💳 Тарифы</button>
+    <button data-tab="stats">📊 Статистика</button>
+  </nav>
+  <div id="auth">
+    <input id="token" type="password" placeholder="API token">
+    <button class="primary" onclick="saveToken()">Войти</button>
+  </div>
+</header>
+<main>
+  <section id="tab-tickets">
+    <div class="card">
+      <div class="row">
+        <select id="ticketStatus" onchange="loadTickets()">
+          <option value="OPEN">Открытые</option>
+          <option value="CLOSED">Закрытые</option>
+          <option value="ALL">Все</option>
+        </select>
+        <span class="muted">обновляется каждые 5 сек</span>
+      </div>
+      <div id="ticketList"></div>
+    </div>
+    <div class="card" id="chatCard" hidden>
+      <div class="row">
+        <b id="chatTitle"></b>
+        <button class="ghost" onclick="closeTicket()">Закрыть тикет</button>
+        <button class="ghost" onclick="hideChat()">✕</button>
+      </div>
+      <div id="chatBox"></div>
+      <div id="replyRow">
+        <textarea id="replyText" placeholder="Ответ клиенту…"></textarea>
+        <button class="primary" onclick="sendReply()">Отправить</button>
+      </div>
+    </div>
+  </section>
+
+  <section id="tab-plans" hidden>
+    <div class="card">
+      <table id="planTable">
+        <thead><tr><th>Код</th><th>Название</th><th>Дней</th><th>Трафик, ГБ</th><th>Цена, ₽</th><th>Вкл</th><th>Порядок</th><th></th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <div class="card">
+      <b>Новый / изменить тариф</b>
+      <div class="row" style="margin-top:10px">
+        <input id="p_code" placeholder="код (m1)" style="width:90px">
+        <input id="p_title" placeholder="название" style="width:220px">
+        <input id="p_days" type="number" placeholder="дней" style="width:80px">
+        <input id="p_traffic" type="number" placeholder="ГБ" style="width:80px">
+        <input id="p_price" type="number" placeholder="₽" style="width:90px">
+        <input id="p_sort" type="number" placeholder="порядок" style="width:90px">
+        <label><input id="p_enabled" type="checkbox" checked> вкл</label>
+        <button class="primary" onclick="savePlan()">Сохранить</button>
+      </div>
+    </div>
+  </section>
+
+  <section id="tab-stats" hidden>
+    <div class="card statgrid" id="statGrid"></div>
+  </section>
+</main>
+<script>
+let TOKEN = localStorage.getItem('tessera_token') || '';
+let currentTicket = null;
+document.getElementById('token').value = TOKEN;
+
+function saveToken(){
+  TOKEN = document.getElementById('token').value.trim();
+  localStorage.setItem('tessera_token', TOKEN);
+  refreshAll();
+}
+async function api(path, opts={}){
+  const r = await fetch(path, {...opts, headers:{'Authorization':'Bearer '+TOKEN,'Content-Type':'application/json',...(opts.headers||{})}});
+  if(r.status===401){throw new Error('Неверный токен');}
+  return r.json();
+}
+document.querySelectorAll('nav button').forEach(b=>b.onclick=()=>{
+  document.querySelectorAll('nav button').forEach(x=>x.classList.remove('active'));
+  b.classList.add('active');
+  ['tickets','plans','stats'].forEach(t=>document.getElementById('tab-'+t).hidden = t!==b.dataset.tab);
+  refreshAll();
+});
+function esc(s){return String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
+
+async function loadTickets(){
+  if(!TOKEN) return;
+  try{
+    const status = document.getElementById('ticketStatus').value;
+    const list = await api('/api/tickets?status='+status);
+    document.getElementById('ticketList').innerHTML = list.length ? list.map(t=>`
+      <div class="ticket" onclick="openTicket(${t.id})">
+        <div>
+          <b>#${t.id}</b> ${esc(t.username?'@'+t.username:(t.first_name||t.telegram_id))}
+          <div class="muted">${esc(t.subject||'')}</div>
+        </div>
+        <div style="text-align:right">
+          <span class="badge ${t.status}">${t.status}</span>
+          <div class="muted">${t.msg_count} сообщ. · ${new Date(t.updated_at).toLocaleString()}</div>
+        </div>
+      </div>`).join('') : '<div class="muted">Тикетов нет 🎉</div>';
+  }catch(e){ document.getElementById('ticketList').innerHTML = '<div class="muted">'+esc(e.message)+'</div>'; }
+}
+async function openTicket(id){
+  currentTicket = id;
+  const d = await api('/api/ticket?id='+id);
+  document.getElementById('chatCard').hidden = false;
+  const t = d.ticket;
+  document.getElementById('chatTitle').textContent = `#${t.id} — ${t.username?'@'+t.username:(t.first_name||t.telegram_id)}`;
+  document.getElementById('chatBox').innerHTML = d.messages.map(m=>`
+    <div class="msg ${m.sender}">${esc(m.body)}
+      <span class="muted">${m.sender==='ADMIN'?'👨‍💻 '+esc(m.sender_name||'admin'):'👤'} · ${new Date(m.created_at).toLocaleString()}</span>
+    </div>`).join('');
+  const box = document.getElementById('chatBox'); box.scrollTop = box.scrollHeight;
+}
+function hideChat(){ document.getElementById('chatCard').hidden = true; currentTicket = null; }
+async function sendReply(){
+  const text = document.getElementById('replyText').value.trim();
+  if(!text || !currentTicket) return;
+  await api('/api/reply',{method:'POST',body:JSON.stringify({ticketId:currentTicket,text})});
+  document.getElementById('replyText').value='';
+  openTicket(currentTicket); loadTickets();
+}
+async function closeTicket(){
+  if(!currentTicket) return;
+  await api('/api/close',{method:'POST',body:JSON.stringify({ticketId:currentTicket})});
+  hideChat(); loadTickets();
+}
+async function loadPlans(){
+  if(!TOKEN) return;
+  try{
+    const plans = await api('/api/plans');
+    document.querySelector('#planTable tbody').innerHTML = plans.map(p=>`
+      <tr>
+        <td>${esc(p.code)}</td><td>${esc(p.title)}</td><td>${p.days}</td><td>${p.traffic_gb}</td>
+        <td>${p.price_rub}</td><td>${p.enabled?'✅':'—'}</td><td>${p.sort_order}</td>
+        <td><button class="ghost" onclick='editPlan(${JSON.stringify(p)})'>✏️</button>
+            <button class="ghost" onclick='togglePlan(${JSON.stringify(p)})'>${p.enabled?'выкл':'вкл'}</button></td>
+      </tr>`).join('');
+  }catch(e){/* noop */}
+}
+function editPlan(p){
+  p_code.value=p.code; p_title.value=p.title; p_days.value=p.days;
+  p_traffic.value=p.traffic_gb; p_price.value=p.price_rub; p_sort.value=p.sort_order;
+  p_enabled.checked=!!p.enabled;
+}
+async function togglePlan(p){
+  await api('/api/plans',{method:'POST',body:JSON.stringify({code:p.code,title:p.title,days:p.days,trafficGb:p.traffic_gb,priceRub:p.price_rub,enabled:!p.enabled,sortOrder:p.sort_order})});
+  loadPlans();
+}
+async function savePlan(){
+  if(!p_code.value.trim()) return alert('Укажите код тарифа');
+  await api('/api/plans',{method:'POST',body:JSON.stringify({
+    code:p_code.value.trim(),title:p_title.value.trim(),days:+p_days.value||30,
+    trafficGb:+p_traffic.value||0,priceRub:+p_price.value||0,enabled:p_enabled.checked,sortOrder:+p_sort.value||0})});
+  loadPlans();
+}
+async function loadStats(){
+  if(!TOKEN) return;
+  try{
+    const s = await api('/api/stats');
+    const items = [['👥 Пользователей',s.users],['🎫 Открытых тикетов',s.openTickets],
+                   ['💳 Оплат за 30 дн',s.paidInvoices30d],['💰 Выручка 30 дн, ₽',s.revenueRub30d]];
+    document.getElementById('statGrid').innerHTML = items.map(([k,v])=>`<div class="stat"><b>${v}</b><span class="muted">${k}</span></div>`).join('');
+  }catch(e){/* noop */}
+}
+function refreshAll(){ loadTickets(); loadPlans(); loadStats(); }
+setInterval(()=>{ if(!document.getElementById('tab-tickets').hidden) loadTickets(); }, 5000);
+refreshAll();
+</script>
+</body>
+</html>

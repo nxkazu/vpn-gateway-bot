@@ -547,7 +547,7 @@ public class AdminHandler {
 
     public Reply settings(Lang lang) {
         StringBuilder plans = new StringBuilder();
-        for (Plans.Plan p : Plans.ALL) {
+        for (Plans.Plan p : Plans.all()) {
             plans.append(m.t(lang, "admin.settings.plan", p.code(), p.days(), p.trafficGb(), p.priceRub()))
                  .append("\n");
         }

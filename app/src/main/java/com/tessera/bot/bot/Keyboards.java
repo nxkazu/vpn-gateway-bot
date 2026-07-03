@@ -24,6 +24,7 @@ public final class Keyboards {
             rows.add(List.of(btn(m.t(lang, "btn.trial"), Callbacks.MENU_TRIAL)));
         }
         rows.add(List.of(btn(m.t(lang, "btn.referral"), Callbacks.MENU_REFERRAL)));
+        rows.add(List.of(btn(m.t(lang, "btn.support"), Callbacks.MENU_SUPPORT)));
         rows.add(List.of(
                 btn(m.t(lang, "btn.help"), Callbacks.MENU_HELP),
                 btn(m.t(lang, "btn.language"), Callbacks.MENU_LANGUAGE)));
@@ -32,7 +33,7 @@ public final class Keyboards {
 
     public static InlineKeyboardMarkup plans(Messages m, Lang lang) {
         List<List<InlineKeyboardButton>> rows = new ArrayList<>();
-        for (Plans.Plan p : Plans.ALL) {
+        for (Plans.Plan p : Plans.all()) {
             rows.add(List.of(btn(
                     m.t(lang, "plan.button", p.title(), p.priceRub(), p.trafficGb()),
                     Callbacks.BUY_PREFIX + p.code())));

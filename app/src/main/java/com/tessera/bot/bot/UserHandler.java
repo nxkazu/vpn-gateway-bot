@@ -10,6 +10,7 @@ import com.tessera.bot.service.PaymentService;
 import com.tessera.bot.service.Plans;
 import com.tessera.bot.service.ReferralService;
 import com.tessera.bot.service.SubscriptionService;
+import com.tessera.bot.service.SupportService;
 import com.tessera.bot.util.Formatting;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -27,6 +28,7 @@ public class UserHandler {
     private final SubscriptionService subscriptions;
     private final ReferralService referrals;
     private final PaymentService payments;
+    private final SupportService support;
     private final LocaleService locales;
     private final Messages m;
 
@@ -132,7 +134,6 @@ public class UserHandler {
         try {
             PaymentService.CheckOutcome outcome = payments.checkAndActivate(telegramId, invoiceId);
             if (outcome instanceof PaymentService.CheckOutcome.Paid paid) {
-                referralLog(telegramId);
                 return Reply.of(m.t(lang, "plan.activated", paid.plan().title(),
                                 Formatting.dateTime(paid.user().expireAt)),
                         Keyboards.subscriptionActions(m, lang, paid.user().subscriptionUrl));
@@ -156,8 +157,20 @@ public class UserHandler {
                 Keyboards.subscriptionActions(m, lang, u.subscriptionUrl));
     }
 
-    private void referralLog(long telegramId) {
-        // Referral reward is granted inside PaymentService on first confirmation.
+    // ------------------------------------------------------------- support
+
+    /** Asks the user to describe their issue (next text message goes into a ticket). */
+    public Reply supportPrompt(long telegramId) {
+        Lang lang = lang(telegramId);
+        return Reply.of(m.t(lang, "support.prompt"), Keyboards.backTo(m, lang, Callbacks.MENU_MAIN));
+    }
+
+    /** Stores the user's message in their (new or open) ticket. */
+    public Reply supportSubmit(long telegramId, String username, String text) {
+        Lang lang = lang(telegramId);
+        SupportService.Submitted s = support.submitUserMessage(telegramId, username, text);
+        return Reply.of(m.t(lang, "support.sent", s.ticketId()),
+                Keyboards.backTo(m, lang, Callbacks.MENU_MAIN));
     }
 
     public Reply referral(long telegramId) {

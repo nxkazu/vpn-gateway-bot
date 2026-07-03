@@ -10,6 +10,7 @@ import com.tessera.bot.remnawave.RemnawaveClient;
 import com.tessera.bot.service.PaymentService;
 import com.tessera.bot.service.ReferralService;
 import com.tessera.bot.service.SubscriptionService;
+import com.tessera.bot.service.SupportService;
 import lombok.extern.slf4j.Slf4j;
 import org.telegram.telegrambots.bots.TelegramLongPollingBot;
 import org.telegram.telegrambots.meta.api.methods.AnswerCallbackQuery;
@@ -40,13 +41,13 @@ public class TesseraBot extends TelegramLongPollingBot {
 
     public TesseraBot(AppConfig config, RemnawaveClient panel, UserRepository users, AuditRepository audit,
                       SubscriptionService subscriptions, ReferralService referrals,
-                      PaymentService payments,
+                      PaymentService payments, SupportService support,
                       LocaleService locales, Messages messages) {
         super(config.botToken());
         this.config = config;
         this.users = users;
         this.locales = locales;
-        this.userHandler = new UserHandler(config, users, subscriptions, referrals, payments, locales, messages);
+        this.userHandler = new UserHandler(config, users, subscriptions, referrals, payments, support, locales, messages);
         this.adminHandler = new AdminHandler(config, panel, users, subscriptions, audit, messages);
     }
 
@@ -76,6 +77,11 @@ public class TesseraBot extends TelegramLongPollingBot {
         String text = msg.getText().trim();
 
         UserState.Await awaiting = state.get(chatId);
+        if (awaiting == UserState.Await.SUPPORT_TEXT) {
+            state.clear(chatId);
+            send(chatId, userHandler.supportSubmit(from.getId(), from.getUserName(), text));
+            return;
+        }
         if (awaiting != UserState.Await.NONE && adminHandler.isAdmin(from.getId())) {
             handleAdminStatefulInput(chatId, from.getId(), text, awaiting);
             return;
@@ -176,6 +182,10 @@ public class TesseraBot extends TelegramLongPollingBot {
             case Callbacks.MENU_REFERRAL -> { return userHandler.referral(userId); }
             case Callbacks.MENU_HELP -> { return userHandler.help(userId); }
             case Callbacks.MENU_LANGUAGE -> { return userHandler.languageMenu(userId); }
+            case Callbacks.MENU_SUPPORT -> {
+                state.set(chatId, UserState.Await.SUPPORT_TEXT);
+                return userHandler.supportPrompt(userId);
+            }
             default -> { /* fall through */ }
         }
         if (data.startsWith(Callbacks.BUY_PREFIX)) {
@@ -308,6 +318,15 @@ public class TesseraBot extends TelegramLongPollingBot {
     }
 
     // -------------------------------------------------------------- sending
+
+    /** Sends a plain text message (used by modules, e.g. support-ticket replies from the dashboard). */
+    public void sendPlain(long chatId, String text) {
+        try {
+            execute(SendMessage.builder().chatId(chatId).text(text).build());
+        } catch (TelegramApiException e) {
+            log.warn("sendPlain to {} failed: {}", chatId, e.getMessage());
+        }
+    }
 
     private void send(long chatId, Reply reply) throws TelegramApiException {
         SendMessage.SendMessageBuilder builder = SendMessage.builder()
