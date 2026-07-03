@@ -21,6 +21,13 @@ public class RemnawaveUser {
     public String tag;
     public String subscriptionUrl;
     public UserTraffic userTraffic;
+    public java.util.List<Squad> activeInternalSquads;
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public static class Squad {
+        public String uuid;
+        public String name;
+    }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     public static class UserTraffic {
