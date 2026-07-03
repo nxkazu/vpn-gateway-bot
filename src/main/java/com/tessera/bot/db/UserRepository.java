@@ -59,6 +59,17 @@ public class UserRepository {
         }
     }
 
+    public void setLocale(long telegramId, String locale) {
+        String sql = "UPDATE bot_users SET locale = ?, updated_at = now() WHERE telegram_id = ?";
+        try (Connection c = ds.getConnection(); PreparedStatement ps = c.prepareStatement(sql)) {
+            ps.setString(1, locale);
+            ps.setLong(2, telegramId);
+            ps.executeUpdate();
+        } catch (SQLException e) {
+            throw new RuntimeException("setLocale failed", e);
+        }
+    }
+
     public void markTrialUsed(long telegramId) {
         update("UPDATE bot_users SET trial_used = TRUE, updated_at = now() WHERE telegram_id = ?", telegramId);
     }
@@ -116,6 +127,7 @@ public class UserRepository {
         u.remnawaveUsername = rs.getString("remnawave_username");
         u.blocked = rs.getBoolean("is_blocked");
         u.trialUsed = rs.getBoolean("trial_used");
+        u.locale = rs.getString("locale");
         return u;
     }
 }
