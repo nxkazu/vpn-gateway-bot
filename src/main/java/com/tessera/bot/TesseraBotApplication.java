@@ -3,6 +3,7 @@ package com.tessera.bot;
 import com.tessera.bot.bot.TesseraBot;
 import com.tessera.bot.config.AppConfig;
 import com.tessera.bot.db.Database;
+import com.tessera.bot.db.AuditRepository;
 import com.tessera.bot.db.ReferralRepository;
 import com.tessera.bot.db.UserRepository;
 import com.tessera.bot.i18n.LocaleService;
@@ -30,6 +31,7 @@ public final class TesseraBotApplication {
 
         UserRepository userRepo = new UserRepository(database.dataSource());
         ReferralRepository referralRepo = new ReferralRepository(database.dataSource());
+        AuditRepository auditRepo = new AuditRepository(database.dataSource());
 
         Messages messages = new Messages();
         LocaleService locales = new LocaleService(userRepo);
@@ -38,7 +40,7 @@ public final class TesseraBotApplication {
         SubscriptionService subscriptions = new SubscriptionService(config, panel, userRepo);
         ReferralService referrals = new ReferralService(config, referralRepo, panel, subscriptions);
 
-        TesseraBot bot = new TesseraBot(config, panel, userRepo, subscriptions, referrals, locales, messages);
+        TesseraBot bot = new TesseraBot(config, panel, userRepo, auditRepo, subscriptions, referrals, locales, messages);
 
         TelegramBotsApi botsApi = new TelegramBotsApi(DefaultBotSession.class);
         botsApi.registerBot(bot);
