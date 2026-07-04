@@ -5,7 +5,7 @@ COPY --chown=gradle:gradle . .
 RUN ./gradlew --no-daemon :app:shadowJar :payment-module:shadowJar :admin-dashboard:shadowJar
 
 # ---- Runtime stage -----------------------------------------------------
-FROM eclipse-temurin:21-jre-jammy
+FROM eclipse-temurin:25-jre-jammy
 WORKDIR /app
 
 # Non-root runtime user
