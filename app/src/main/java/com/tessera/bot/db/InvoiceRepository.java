@@ -91,6 +91,22 @@ public class InvoiceRepository {
         }
     }
 
+    /**
+     * Atomically transitions a PENDING invoice to PAID, returning {@code true} only for the
+     * caller that actually performed the transition. This is the concurrency guard that makes
+     * plan activation (and the referral reward) happen exactly once when the manual "I paid"
+     * check races the background PaymentWatcher.
+     */
+    public boolean markPaidIfPending(long id) {
+        String sql = "UPDATE payment_invoices SET status = 'PAID', updated_at = now() WHERE id = ? AND status = 'PENDING'";
+        try (Connection c = ds.getConnection(); PreparedStatement ps = c.prepareStatement(sql)) {
+            ps.setLong(1, id);
+            return ps.executeUpdate() == 1;
+        } catch (SQLException e) {
+            throw new RuntimeException("markPaidIfPending failed", e);
+        }
+    }
+
     /** Writes a row into the pre-existing {@code payments} ledger table. */
     public void recordPayment(long telegramId, String planCode, long amountCents, String currency,
                               int days, String provider, String providerRef) {
