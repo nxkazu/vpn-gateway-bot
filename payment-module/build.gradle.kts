@@ -13,12 +13,12 @@ dependencies {
     // Provided by the host application's classloader at runtime (parent-first loading).
     compileOnly(project(":core-api"))
     compileOnly("com.squareup.okhttp3:okhttp:4.12.0")
-    compileOnly("com.fasterxml.jackson.core:jackson-databind:2.17.2")
+    compileOnly("com.fasterxml.jackson.core:jackson-databind:2.22.0")
 
     // Tests
     testImplementation(project(":core-api"))
     testImplementation("com.squareup.okhttp3:okhttp:4.12.0")
-    testImplementation("com.fasterxml.jackson.core:jackson-databind:2.17.2")
+    testImplementation("com.fasterxml.jackson.core:jackson-databind:2.22.0")
     testImplementation(platform("org.junit:junit-bom:5.11.3"))
     testImplementation("org.junit.jupiter:junit-jupiter")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
