@@ -20,7 +20,7 @@
 Интерфейс переведён на 6 языков: 🇬🇧 English, 🇷🇺 Русский, 🇪🇸 Español,
 🇩🇪 Deutsch, 🇫🇷 Français, 🇨🇳 中文. Язык выбирается пользователем в меню
 («🌐 Язык») и сохраняется в БД; по умолчанию берётся из языка Telegram-клиента,
-иначе — английский. Строки хранятся в `src/main/resources/i18n/messages[_xx].properties`
+иначе — английский. Строки хранятся в `tessera-i18n/src/main/resources/i18n/messages[_xx].properties`
 (английский — базовый бандл и фолбэк для любого отсутствующего ключа).
 Как добавить язык — см. [CONTRIBUTING.md](CONTRIBUTING.md).
 
@@ -36,35 +36,21 @@
 ## Архитектура
 
 ```
-com.tessera.bot
-├── TesseraBotApplication      # точка входа, DI-проводка
-├── config/AppConfig           # конфигурация из переменных окружения
-├── remnawave/                 # типизированный клиент Remnawave API
-│   ├── RemnawaveClient
-│   ├── RemnawaveException
-│   └── dto/                   # DTO запросов/ответов
-├── db/                        # HikariCP + Flyway + репозитории
-│   ├── Database
-│   ├── UserRepository
-│   ├── ReferralRepository
-│   └── model/
-├── service/                   # бизнес-логика
-│   ├── SubscriptionService    # жизненный цикл VPN-аккаунта
-│   ├── ReferralService        # реферальная программа
-│   └── Plans                  # каталог тарифов
-├── bot/                       # слой Telegram
-│   ├── TesseraBot             # long-polling роутер
-│   ├── UserHandler            # пользовательские сценарии
-│   ├── AdminHandler           # админ-сценарии
-│   ├── Keyboards / Callbacks  # inline-клавиатуры
-│   └── UserState / Reply
-└── util/Formatting            # форматирование сообщений
+tessera-telegram  ─┐
+                   ├─> tessera-services ─┬─> tessera-remnawave
+tessera-modules   ─┘                     ├─> tessera-db
+                                         ├─> tessera-core
+                                         └─> tessera-common/i18n
+
+tessera-app wires everything together and starts Telegram long polling.
+tessera-payment and tessera-dashboard are runtime plugin JARs loaded from modules/.
 ```
 
-Слои разделены по ответственности: **bot** (I/O Telegram) → **service**
-(бизнес-правила) → **remnawave** (внешний API) + **db** (собственное состояние:
-рефералы, привязки, платежи). VPN-аккаунт «источника истины» живёт в панели
-Remnawave; локальная БД хранит только то, чего в панели нет.
+Слои разделены по ответственности: **tessera-telegram** (I/O Telegram) →
+**tessera-services** (use-cases и бизнес-правила) → **tessera-remnawave**
+(внешний API) + **tessera-db** (собственное состояние: рефералы, привязки,
+платежи, тарифы). VPN-аккаунт «источника истины» живёт в панели Remnawave;
+локальная БД хранит только то, чего в панели нет.
 
 ## Быстрый старт (Docker)
 
@@ -110,10 +96,11 @@ cp .env.example .env   # заполните значения
 
 ## Интеграция платежей
 
-`UserHandler.buyPlan(...)` активирует тариф напрямую. Чтобы подключить реальную
-оплату (ЮKassa, Telegram Payments, Crypto Pay и т.п.), проведите вызов через
-провайдера и вызывайте активацию только после успешного платежа. Записи
-платежей уже моделируются таблицей `payments`.
+`tessera-payment` регистрирует провайдеры оплаты через SPI `PaymentProvider`.
+Пользователь выбирает тариф → способ оплаты → получает счёт → после подтверждения
+платежа активируется подписка в Remnawave и пишется ledger-запись в `payments`.
+Для локального/dev-режима можно явно включить прямую активацию без оплаты через
+`ALLOW_FREE_ACTIVATION=true`.
 
 ## Лицензия
 
@@ -122,17 +109,31 @@ MIT — см. [LICENSE](LICENSE).
 
 Начиная с v1.1 бот собран как мульти-модульный Gradle-проект, а функциональность
 подключается **плагинами** — отдельными JAR-файлами в каталоге `modules/`
-(переменная `MODULES_DIR`). Каждый модуль реализует SPI `BotModule` из `core-api`
+(переменная `MODULES_DIR`). Каждый runtime-модуль реализует SPI `BotModule` из `tessera-core`
 и обнаруживается через `ServiceLoader` в собственном `URLClassLoader`.
 
 ```
 tessera-vpn-bot
-├── core-api/          # SPI: BotModule, ModuleContext, PaymentProvider, ...
-├── app/               # ядро бота (tessera-vpn-bot.jar) + загрузчик модулей
-└── payment-module/    # PaymentModule.jar — платёжные шлюзы CryptoBot и Platega
+├── tessera-core/        # SPI: BotModule, ModuleContext, PaymentProvider, ...
+├── tessera-config/      # env-конфигурация приложения
+├── tessera-i18n/        # Lang, Messages и i18n resource bundles
+├── tessera-common/      # shared presentation helpers
+├── tessera-db/          # HikariCP, Flyway, repositories, DB-backed plan catalogue
+├── tessera-remnawave/   # typed Remnawave API client + DTO
+├── tessera-services/    # business use-cases: subscriptions, payments, referrals, support
+├── tessera-modules/     # runtime module loader + module context bridge
+├── tessera-telegram/    # Telegram adapter: bot router, handlers, keyboards
+├── tessera-app/         # тонкий bootstrap (tessera-vpn-bot.jar)
+├── tessera-payment/     # tessera-payment.jar — платёжные шлюзы CryptoBot и Platega
+└── tessera-dashboard/   # tessera-dashboard.jar — веб-дашборд поддержки/тарифов
 ```
 
-### PaymentModule.jar
+Внутри это **modular monolith**: модули общаются через Java-интерфейсы и явные
+Gradle-зависимости, а внешняя расширяемость остаётся через runtime-плагины в `modules/`.
+Такую структуру проще тестировать сейчас и при необходимости раскалывать на реальные
+микросервисы позже.
+
+### tessera-payment.jar
 
 Платёжный модуль регистрирует два merchant-гейта:
 
@@ -153,13 +154,13 @@ tessera-vpn-bot
 
 ### Свой модуль
 
-1. Создайте Gradle-подпроект с `compileOnly(project(":core-api"))`.
+1. Создайте Gradle-подпроект с `compileOnly(project(":tessera-core"))`.
 2. Реализуйте `com.tessera.core.api.BotModule` и зарегистрируйте класс в
    `META-INF/services/com.tessera.core.api.BotModule`.
 3. Соберите shadow-jar и положите его в `modules/` — ядро подхватит его при старте.
-## Админ-дашборд (AdminDashboard.jar)
+## Админ-дашборд (tessera-dashboard.jar)
 
-Модуль `admin-dashboard` поднимает встроенный веб-дашборд (JDK HttpServer, без внешних
+Модуль `tessera-dashboard` поднимает встроенный веб-дашборд (JDK HttpServer, без внешних
 зависимостей) на порту `8080` (наружу — `DASHBOARD_PORT`). Включается заданием
 `DASHBOARD_TOKEN` в `.env` — этим же токеном выполняется вход в UI.
 

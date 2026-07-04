@@ -19,11 +19,12 @@ docker compose up -d --build
 - `.editorconfig` defines indentation and line endings; keep it green.
 - 4-space indentation for Java, 120-char soft line limit.
 - Prefer Lombok (`@Slf4j`, `@RequiredArgsConstructor`, `@Getter`, `@Builder`) over hand-written boilerplate.
-- Keep the layering intact: `bot -> service -> {remnawave, db}`. The bot layer must not talk to the Remnawave API or JDBC directly.
+- Keep the layering intact: `tessera-telegram -> tessera-services -> {tessera-remnawave, tessera-db}`.
+  The Telegram layer must not talk to the Remnawave API or JDBC directly.
 
 ## Internationalization (i18n)
 
-- User-facing strings live in `src/main/resources/i18n/messages[_xx].properties`.
+- User-facing strings live in `tessera-i18n/src/main/resources/i18n/messages[_xx].properties`.
 - `messages.properties` (English) is the base bundle and the fallback for every key.
 - When you add a key, add it to the English base first, then translate into the other bundles.
 - Never hard-code user-facing text in Java — always go through `Messages.t(lang, key, args...)`.
@@ -36,6 +37,6 @@ docker compose up -d --build
 
 ## Adding a language
 
-1. Add an enum constant to `com.tessera.bot.i18n.Lang` (code + display name + flag emoji).
+1. Add an enum constant to `com.tessera.i18n.Lang` (code + display name + flag emoji).
 2. Create `messages_<code>.properties` with the user-facing keys.
 3. That's it — the language selector and fallback wiring pick it up automatically.

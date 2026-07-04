@@ -4,7 +4,7 @@ plugins {
 
 allprojects {
     group = "com.tessera"
-    version = "1.1.1"
+    version = "1.2.0"
 
     repositories {
         mavenCentral()
@@ -12,16 +12,16 @@ allprojects {
 }
 
 tasks.register<Sync>("prepareRuntime") {
-    dependsOn(":app:shadowJar", ":payment-module:shadowJar", ":admin-dashboard:shadowJar")
+    dependsOn(":tessera-app:shadowJar", ":tessera-payment:shadowJar", ":tessera-dashboard:shadowJar")
 
     into(layout.buildDirectory.dir("runtime"))
 
-    from(project(":app").layout.buildDirectory.file("libs/tessera-vpn-bot.jar")) {
+    from(project(":tessera-app").layout.buildDirectory.file("libs/tessera-vpn-bot.jar")) {
         rename { "app.jar" }
     }
 
     into("modules") {
-        from(project(":payment-module").layout.buildDirectory.file("libs/PaymentModule.jar"))
-        from(project(":admin-dashboard").layout.buildDirectory.file("libs/AdminDashboard.jar"))
+        from(project(":tessera-payment").layout.buildDirectory.file("libs/tessera-payment.jar"))
+        from(project(":tessera-dashboard").layout.buildDirectory.file("libs/tessera-dashboard.jar"))
     }
 }
