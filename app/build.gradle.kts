@@ -34,7 +34,7 @@ dependencies {
     implementation("org.flywaydb:flyway-database-postgresql:10.20.1")
 
     // Logging
-    implementation("ch.qos.logback:logback-classic:1.5.12")
+    implementation("ch.qos.logback:logback-classic:1.5.37")
 
     // Tests
     testImplementation(platform("org.junit:junit-bom:5.11.3"))
