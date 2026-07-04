@@ -238,9 +238,23 @@ final class DashboardServer {
 
     private boolean authorized(HttpExchange ex) {
         String h = ex.getRequestHeaders().getFirst("Authorization");
-        if (h != null && h.equals("Bearer " + token)) return true;
+        if (h != null && h.startsWith("Bearer ")
+                && constantTimeEquals(h.substring("Bearer ".length()), token)) {
+            return true;
+        }
+        // The `t` query parameter exists only so attachment images can be embedded via plain
+        // <img> tags; it leaks into logs/history, so keep the dashboard behind a TLS reverse
+        // proxy and prefer the Authorization header everywhere else.
         String t = query(ex).get("t");
-        return t != null && t.equals(token);
+        return t != null && constantTimeEquals(t, token);
+    }
+
+    /** Constant-time token comparison to avoid leaking the secret via response timing. */
+    private static boolean constantTimeEquals(String a, String b) {
+        if (a == null || b == null) return false;
+        return java.security.MessageDigest.isEqual(
+                a.getBytes(java.nio.charset.StandardCharsets.UTF_8),
+                b.getBytes(java.nio.charset.StandardCharsets.UTF_8));
     }
 
     private void requirePost(String method) {

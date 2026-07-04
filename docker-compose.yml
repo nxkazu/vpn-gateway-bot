@@ -3,10 +3,12 @@ services:
     image: postgres:16-alpine
     container_name: tessera-postgres
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
     environment:
       POSTGRES_DB: ${DB_NAME:-tessera}
       POSTGRES_USER: ${DB_USER:-tessera}
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-tessera}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required}
     volumes:
       - tessera-pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -21,6 +23,8 @@ services:
     build: .
     container_name: tessera-bot
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
     depends_on:
       postgres:
         condition: service_healthy
@@ -30,7 +34,8 @@ services:
       DB_HOST: postgres
       DB_PORT: 5432
     ports:
-      - "${DASHBOARD_PORT:-8080}:8080"
+      # Bound to loopback only — expose the dashboard via a TLS reverse proxy, never directly.
+      - "127.0.0.1:${DASHBOARD_PORT:-8080}:8080"
     networks:
       - tessera-net
 

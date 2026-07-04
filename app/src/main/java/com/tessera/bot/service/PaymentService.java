@@ -133,18 +133,31 @@ public class PaymentService {
         InvoiceStatus status = provider.checkInvoice(inv.externalId());
         switch (status) {
             case PAID -> {
-                RemnawaveUser user = subscriptions.activatePlan(
-                        telegramId, plan.days(), plan.trafficBytes(), plan.code());
-                invoices.markStatus(invoiceId, "PAID");
-                invoices.recordPayment(telegramId, plan.code(), inv.amountCents(), inv.currency(),
-                        plan.days(), inv.provider(), inv.externalId());
-                if (promos != null && inv.promoCode() != null) {
-                    promos.redeemOnPaid(inv.promoCode(), telegramId, invoiceId);
+                // Atomically claim the invoice BEFORE activating anything. Only the caller that
+                // wins the PENDING -> PAID transition activates the plan and grants rewards, so a
+                // manual "I paid" check racing the background PaymentWatcher can never
+                // double-activate the subscription or double-reward the referrer.
+                if (!invoices.markPaidIfPending(invoiceId)) {
+                    RemnawaveUser u = subscriptions.currentSubscription(telegramId).orElse(null);
+                    return u != null ? new CheckOutcome.Paid(u, plan) : new CheckOutcome.Failed();
                 }
-                referrals.rewardOnActivation(telegramId).ifPresent(refId ->
-                        log.info("Referral reward granted to {} for paid activation by {}", refId, telegramId));
-                log.info("Invoice {} PAID; plan {} activated for {}", invoiceId, plan.code(), telegramId);
-                return new CheckOutcome.Paid(user, plan);
+                try {
+                    RemnawaveUser user = subscriptions.activatePlan(
+                            telegramId, plan.days(), plan.trafficBytes(), plan.code());
+                    invoices.recordPayment(telegramId, plan.code(), inv.amountCents(), inv.currency(),
+                            plan.days(), inv.provider(), inv.externalId());
+                    if (promos != null && inv.promoCode() != null) {
+                        promos.redeemOnPaid(inv.promoCode(), telegramId, invoiceId);
+                    }
+                    referrals.rewardOnActivation(telegramId).ifPresent(refId ->
+                            log.info("Referral reward granted to {} for paid activation by {}", refId, telegramId));
+                    log.info("Invoice {} PAID; plan {} activated for {}", invoiceId, plan.code(), telegramId);
+                    return new CheckOutcome.Paid(user, plan);
+                } catch (Exception e) {
+                    // Activation failed after claiming — revert to PENDING so a later check retries.
+                    invoices.markStatus(invoiceId, "PENDING");
+                    throw e;
+                }
             }
             case PENDING -> {
                 return new CheckOutcome.Pending(inv);
