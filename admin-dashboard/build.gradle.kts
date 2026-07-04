@@ -12,7 +12,7 @@ java {
 dependencies {
     // Provided by the host application's classloader at runtime (parent-first loading).
     compileOnly(project(":core-api"))
-    compileOnly("com.fasterxml.jackson.core:jackson-databind:2.17.2")
+    compileOnly("com.fasterxml.jackson.core:jackson-databind:2.22.0")
 }
 
 tasks.shadowJar {
