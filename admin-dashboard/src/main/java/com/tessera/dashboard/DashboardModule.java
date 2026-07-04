@@ -9,7 +9,7 @@ import com.tessera.core.api.ModuleContext;
  * management, promo codes, stats and 30-day charts.
  *
  * Configuration (env): {@code DASHBOARD_TOKEN} (required; the UI login token),
- * {@code DASHBOARD_PORT} (default 8080), {@code DASHBOARD_BIND} (default 0.0.0.0).
+ * {@code DASHBOARD_PORT} (default 8080), {@code DASHBOARD_BIND} (default 127.0.0.1).
  * {@code BOT_TOKEN} is reused (read-only) to proxy Telegram file attachments.
  */
 public final class DashboardModule implements BotModule {
@@ -32,7 +32,7 @@ public final class DashboardModule implements BotModule {
             return;
         }
         int port = Integer.parseInt(ctx.env("DASHBOARD_PORT", "8080"));
-        String bind = ctx.env("DASHBOARD_BIND", "0.0.0.0");
+        String bind = ctx.env("DASHBOARD_BIND", "127.0.0.1");
         String botToken = ctx.env("BOT_TOKEN", "");
         server = new DashboardServer(bind, port, token, botToken, ctx.dataSource(), ctx.notifier());
         server.start();

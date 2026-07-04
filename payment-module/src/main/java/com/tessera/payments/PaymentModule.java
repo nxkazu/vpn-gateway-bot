@@ -10,7 +10,7 @@ import java.nio.file.Path;
 
 /**
  * Payment module: registers the CryptoBot and Platega merchant gates with the host
- * application. Configuration lives in {@code <configDir>/payments.yml} (okaeri-configs);
+ * application. Configuration lives in {@code <configDir>/payments.yml};
  * environment variables override file values.
  */
 public final class PaymentModule implements BotModule {
@@ -35,7 +35,9 @@ public final class PaymentModule implements BotModule {
             LOG.log(System.Logger.Level.INFO, "CryptoBot merchant gate disabled (missing token or disabled)");
         }
 
-        if (cfg.getPlatega().isEnabled() && !cfg.getPlatega().getMerchantId().isBlank()) {
+        if (cfg.getPlatega().isEnabled()
+                && !cfg.getPlatega().getMerchantId().isBlank()
+                && !cfg.getPlatega().getSecret().isBlank()) {
             ctx.registerPaymentProvider(new PlategaProvider(cfg.getPlatega()));
             LOG.log(System.Logger.Level.INFO, "Platega merchant gate enabled");
         } else {

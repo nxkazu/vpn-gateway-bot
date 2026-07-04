@@ -28,6 +28,7 @@ public final class AppConfig {
     private final int trialTrafficGb;
     private final int referralRewardDays;
     private final String defaultTrafficStrategy;
+    private final boolean allowFreeActivation;
 
     private AppConfig(Builder b) {
         this.botToken = b.botToken;
@@ -45,6 +46,7 @@ public final class AppConfig {
         this.trialTrafficGb = b.trialTrafficGb;
         this.referralRewardDays = b.referralRewardDays;
         this.defaultTrafficStrategy = b.defaultTrafficStrategy;
+        this.allowFreeActivation = b.allowFreeActivation;
     }
 
     public static AppConfig fromEnv() {
@@ -71,6 +73,7 @@ public final class AppConfig {
         b.trialTrafficGb = Integer.parseInt(env("TRIAL_TRAFFIC_GB", "20"));
         b.referralRewardDays = Integer.parseInt(env("REFERRAL_REWARD_DAYS", "15"));
         b.defaultTrafficStrategy = env("DEFAULT_TRAFFIC_STRATEGY", "MONTH");
+        b.allowFreeActivation = Boolean.parseBoolean(env("ALLOW_FREE_ACTIVATION", "false"));
         return new AppConfig(b);
     }
 
@@ -110,6 +113,7 @@ public final class AppConfig {
     public long trialTrafficBytes() { return (long) trialTrafficGb * 1024L * 1024L * 1024L; }
     public int referralRewardDays() { return referralRewardDays; }
     public String defaultTrafficStrategy() { return defaultTrafficStrategy; }
+    public boolean allowFreeActivation() { return allowFreeActivation; }
 
     public static final class Builder {
         private String botToken;
@@ -127,5 +131,6 @@ public final class AppConfig {
         private int trialTrafficGb;
         private int referralRewardDays;
         private String defaultTrafficStrategy;
+        private boolean allowFreeActivation;
     }
 }

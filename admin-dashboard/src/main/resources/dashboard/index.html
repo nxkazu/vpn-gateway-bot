@@ -175,6 +175,7 @@ function show(tab){
   if (tab==='tickets') loadTickets();
 }
 function esc(s){ return (s??'').toString().replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+function attr(s){ return esc(s).replace(/'/g,'&#39;'); }
 function fmtDate(s){ return s ? new Date(s).toLocaleString('ru-RU') : ''; }
 
 /* -------- tickets -------- */
@@ -232,14 +233,15 @@ async function loadPlans(){
   if(!TOKEN) return;
   const plans = await api('/api/plans');
   document.querySelector('#plansTable tbody').innerHTML = plans.map(p=>`
-    <tr onclick="fillPlan('${esc(p.code)}','${esc(p.title)}',${p.days},${p.traffic_gb},${p.price_rub},${p.enabled},${p.sort_order})" style="cursor:pointer">
+    <tr data-plan='${attr(JSON.stringify(p))}' onclick="fillPlanFromRow(this)" style="cursor:pointer">
       <td>${esc(p.code)}</td><td>${esc(p.title)}</td><td>${p.days}</td><td>${p.traffic_gb}</td>
       <td>${p.price_rub}</td><td>${p.enabled?'✅':'—'}</td><td>${p.sort_order}</td>
     </tr>`).join('');
 }
-function fillPlan(code,title,days,gb,price,enabled,sort){
-  p_code.value=code; p_title.value=title; p_days.value=days; p_traffic.value=gb;
-  p_price.value=price; p_enabled.checked=enabled; p_sort.value=sort;
+function fillPlanFromRow(row){
+  const p = JSON.parse(row.dataset.plan);
+  p_code.value=p.code; p_title.value=p.title; p_days.value=p.days; p_traffic.value=p.traffic_gb;
+  p_price.value=p.price_rub; p_enabled.checked=p.enabled; p_sort.value=p.sort_order;
 }
 async function savePlan(){
   if(!p_code.value.trim()) return alert('Укажите код тарифа');
@@ -259,7 +261,7 @@ async function loadPromos(){
       <td>${p.uses} / ${p.max_uses||'∞'}</td>
       <td>${p.expires_at?fmtDate(p.expires_at):'—'}</td>
       <td>${p.enabled?'✅':'—'}</td>
-      <td><button class="danger" onclick="deletePromo('${esc(p.code)}')">Удалить</button></td>
+      <td><button class="danger" data-code="${attr(p.code)}" onclick="deletePromo(this.dataset.code)">Удалить</button></td>
     </tr>`).join('') || '<tr><td colspan="6" class="muted">Промокодов нет</td></tr>';
 }
 async function savePromo(){

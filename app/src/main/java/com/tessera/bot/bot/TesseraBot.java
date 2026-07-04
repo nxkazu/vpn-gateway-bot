@@ -23,7 +23,6 @@ import org.telegram.telegrambots.meta.api.objects.Message;
 import org.telegram.telegrambots.meta.api.objects.PhotoSize;
 import org.telegram.telegrambots.meta.api.objects.Update;
 import org.telegram.telegrambots.meta.api.objects.User;
-import org.telegram.telegrambots.meta.api.objects.replykeyboard.InlineKeyboardMarkup;
 import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
 
 import java.util.List;
@@ -200,8 +199,7 @@ public class TesseraBot extends TelegramLongPollingBot {
         int sent = 0;
         for (long id : recipients) {
             try {
-                execute(SendMessage.builder().chatId(id).text(text)
-                        .parseMode(ParseMode.MARKDOWN).build());
+                sendMessageWithMarkdownFallback(SendMessage.builder().chatId(id).text(text).build());
                 sent++;
                 Thread.sleep(35); // stay within Telegram rate limits (~30 msg/s)
             } catch (Exception e) {
@@ -394,14 +392,34 @@ public class TesseraBot extends TelegramLongPollingBot {
     }
 
     private void send(long chatId, Reply reply) throws TelegramApiException {
-        SendMessage.SendMessageBuilder builder = SendMessage.builder()
+        SendMessage message = SendMessage.builder()
                 .chatId(chatId)
                 .text(reply.text())
-                .parseMode(ParseMode.MARKDOWN);
-        if (reply.keyboard() != null) {
-            builder.replyMarkup(reply.keyboard());
+                .replyMarkup(reply.keyboard())
+                .build();
+        sendMessageWithMarkdownFallback(message);
+    }
+
+    private void sendMessageWithMarkdownFallback(SendMessage message) throws TelegramApiException {
+        message.setParseMode(ParseMode.MARKDOWN);
+        try {
+            execute(message);
+        } catch (TelegramApiException e) {
+            log.debug("Markdown send failed, retrying as plain text: {}", e.getMessage());
+            message.setParseMode(null);
+            execute(message);
         }
-        execute(builder.build());
+    }
+
+    private void editMessageWithMarkdownFallback(EditMessageText message) throws TelegramApiException {
+        message.setParseMode(ParseMode.MARKDOWN);
+        try {
+            execute(message);
+        } catch (TelegramApiException e) {
+            log.debug("Markdown edit failed, retrying as plain text: {}", e.getMessage());
+            message.setParseMode(null);
+            execute(message);
+        }
     }
 
     private void edit(long chatId, int messageId, Reply reply) {
@@ -409,12 +427,11 @@ public class TesseraBot extends TelegramLongPollingBot {
             EditMessageText.EditMessageTextBuilder builder = EditMessageText.builder()
                     .chatId(chatId)
                     .messageId(messageId)
-                    .text(reply.text())
-                    .parseMode(ParseMode.MARKDOWN);
+                    .text(reply.text());
             if (reply.keyboard() != null) {
-                builder.replyMarkup((InlineKeyboardMarkup) reply.keyboard());
+                builder.replyMarkup(reply.keyboard());
             }
-            execute(builder.build());
+            editMessageWithMarkdownFallback(builder.build());
         } catch (TelegramApiException e) {
             try {
                 send(chatId, reply);

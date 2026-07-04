@@ -15,9 +15,6 @@ dependencies {
     compileOnly("com.squareup.okhttp3:okhttp:4.12.0")
     compileOnly("com.fasterxml.jackson.core:jackson-databind:2.17.2")
 
-    // Shaded into PaymentModule.jar.
-    implementation("eu.okaeri:okaeri-configs-yaml-snakeyaml:5.0.5")
-
     // Tests
     testImplementation(project(":core-api"))
     testImplementation("com.squareup.okhttp3:okhttp:4.12.0")

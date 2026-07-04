@@ -110,6 +110,10 @@ public class UserHandler {
             return Reply.of(m.t(lang, "pay.choose", plan.title(), plan.priceRub()),
                     Keyboards.paymentMethods(m, lang, plan.code(), payments.providers(), true));
         }
+        if (!config.allowFreeActivation()) {
+            log.warn("Purchase blocked for user {}: no payment providers are registered", telegramId);
+            return Reply.of(m.t(lang, "pay.provider.unavailable"), Keyboards.backTo(m, lang, Callbacks.MENU_BUY));
+        }
         return activateDirectly(telegramId, lang, plan);
     }
 

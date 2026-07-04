@@ -83,9 +83,8 @@ docker compose up -d --build
 ## Локальный запуск
 
 ```bash
-cp .env.example .env   # заполните значения и экспортируйте в окружение
-./gradlew shadowJar
-java -jar build/libs/tessera-vpn-bot.jar
+cp .env.example .env   # заполните значения
+./scripts/run-local.sh
 ```
 
 ## Конфигурация
@@ -146,10 +145,11 @@ tessera-vpn-bot
 проверка статуса у провайдера → активация тарифа в Remnawave + запись в `payments`
 + реферальный бонус. Счета хранятся в таблице `payment_invoices` (Flyway `V4`).
 
-Конфигурация — `config/payments.yml` (генерируется автоматически, okaeri-configs)
+Конфигурация — `config/payments.yml` (генерируется автоматически)
 либо переменные окружения `CRYPTOBOT_TOKEN`, `PLATEGA_MERCHANT_ID`, `PLATEGA_SECRET`
-(env переопределяет файл). Если ни один гейт не настроен, бот работает как раньше
-(активация тарифа без оплаты — удобно для дев-окружения).
+(env переопределяет файл). Если ни один гейт не настроен, покупка тарифа блокируется;
+активацию без оплаты можно включить только явно через `ALLOW_FREE_ACTIVATION=true`
+для локального/dev-окружения.
 
 ### Свой модуль
 
@@ -203,6 +203,6 @@ reverse-proxy с TLS (например, за nginx/caddy) или огранич�
 - **Tests**: `PromoServiceTest` (validation + discount math) and `PlategaProviderTest`
   (status mapping).
 
-> ⚠️ Security note: the dashboard also accepts the access token as a `t=` query
-> parameter (needed for embedding attachment images). Keep the dashboard behind a
-> reverse proxy with TLS and restrict access at the network level.
+> ⚠️ Security note: the dashboard file proxy accepts the access token as a `t=` query
+> parameter for embedding attachment images. Keep the dashboard behind a reverse proxy
+> with TLS and restrict access at the network level.

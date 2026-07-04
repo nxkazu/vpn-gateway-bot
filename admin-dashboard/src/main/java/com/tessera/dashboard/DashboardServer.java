@@ -23,9 +23,9 @@ import java.util.concurrent.Executors;
 
 /**
  * Minimal embedded web server (JDK HttpServer, zero external deps) serving the admin
- * dashboard UI and its JSON API. All {@code /api/*} routes require the bearer token
- * (either the {@code Authorization: Bearer} header or a {@code t} query parameter —
- * the latter exists so that attachment images can be embedded with plain {@code <img>} tags).
+ * dashboard UI and its JSON API. All {@code /api/*} routes require the bearer token.
+ * The {@code /api/file} route also accepts a {@code t} query parameter so Telegram
+ * attachments can be embedded with plain {@code <img>} tags.
  */
 final class DashboardServer {
 
@@ -71,7 +71,7 @@ final class DashboardServer {
                 return;
             }
             if (path.startsWith("/api/")) {
-                if (!authorized(ex)) {
+                if (!authorized(ex, path)) {
                     sendJson(ex, 401, Map.of("error", "unauthorized"));
                     return;
                 }
@@ -236,15 +236,17 @@ final class DashboardServer {
 
     // ------------------------------------------------------------- helpers
 
-    private boolean authorized(HttpExchange ex) {
+    private boolean authorized(HttpExchange ex, String path) {
         String h = ex.getRequestHeaders().getFirst("Authorization");
         if (h != null && h.startsWith("Bearer ")
                 && constantTimeEquals(h.substring("Bearer ".length()), token)) {
             return true;
         }
-        // The `t` query parameter exists only so attachment images can be embedded via plain
-        // <img> tags; it leaks into logs/history, so keep the dashboard behind a TLS reverse
-        // proxy and prefer the Authorization header everywhere else.
+        if (!"/api/file".equals(path) || !"GET".equals(ex.getRequestMethod())) {
+            return false;
+        }
+        // The `t` query parameter exists only so attachment images can be embedded via
+        // plain <img> tags.
         String t = query(ex).get("t");
         return t != null && constantTimeEquals(t, token);
     }

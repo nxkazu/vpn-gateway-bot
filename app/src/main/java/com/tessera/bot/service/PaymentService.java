@@ -19,9 +19,8 @@ import java.util.Optional;
 /**
  * Registry of {@link PaymentProvider}s (contributed by payment modules) plus the
  * invoice lifecycle: create -> user pays -> check -> activate plan + reward referral.
- * If no providers are registered the bot falls back to direct (free) activation,
- * preserving pre-payments behaviour. Promo codes discount the invoice amount and are
- * redeemed exactly once, when the invoice is first confirmed as paid.
+ * Promo codes discount the invoice amount and are redeemed exactly once, when the
+ * invoice is first confirmed as paid.
  */
 @Slf4j
 public class PaymentService {
