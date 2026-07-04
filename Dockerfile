@@ -1,5 +1,5 @@
 # ---- Build stage -------------------------------------------------------
-FROM gradle:8.11.1-jdk21 AS build
+FROM gradle:9.6.1-jdk21 AS build
 WORKDIR /home/gradle/project
 COPY --chown=gradle:gradle . .
 RUN gradle --no-daemon :app:shadowJar :payment-module:shadowJar :admin-dashboard:shadowJar
