@@ -34,6 +34,7 @@ import com.tessera.ops.DatabaseBackupService;
 import com.tessera.ops.OpsAlertService;
 import com.tessera.ops.OpsHealthService;
 import com.tessera.ops.OpsHttpServer;
+import com.tessera.webapp.TesseraWebAppServer;
 import lombok.extern.slf4j.Slf4j;
 import org.telegram.telegrambots.meta.TelegramBotsApi;
 import org.telegram.telegrambots.updatesreceivers.DefaultBotSession;
@@ -100,6 +101,24 @@ public final class TesseraBotApplication {
         if (opsHttp != null) {
             opsHttp.start();
         }
+        TesseraWebAppServer webApp = config.webappEnabled()
+                ? new TesseraWebAppServer(config, userRepo, subscriptions, panel, experience, analytics, rateLimiter)
+                : null;
+        if (webApp != null) {
+            webApp.start();
+            if (config.webappPublicUrl().isBlank()) {
+                log.warn("Tessera WebApp server is enabled on {}:{}, but WEBAPP_PUBLIC_URL is empty; "
+                                + "Telegram Mini App buttons will stay hidden.",
+                        config.webappBind(), config.webappPort());
+            } else if (!config.webappPublicUrl().startsWith("https://")) {
+                log.warn("Tessera WebApp server is enabled on {}:{}, but WEBAPP_PUBLIC_URL='{}' is not HTTPS; "
+                                + "Telegram Mini App buttons will stay hidden.",
+                        config.webappBind(), config.webappPort(), config.webappPublicUrl());
+            } else {
+                log.info("Tessera WebApp server started on {}:{} with public URL {}.",
+                        config.webappBind(), config.webappPort(), config.webappPublicUrl());
+            }
+        }
         backups.startScheduled(config.backupScheduleHours(),
                 error -> config.adminIdsWithRole(AdminRole.OPS).forEach(adminId ->
                         notifier.sendMessage(adminId, "⚠️ Tessera backup failed: " + error)));
@@ -140,6 +159,7 @@ public final class TesseraBotApplication {
             if (finalExpiry != null) finalExpiry.close();
             opsAlerts.close();
             if (opsHttp != null) opsHttp.close();
+            if (webApp != null) webApp.close();
             backups.close();
             moduleLoader.close();
             database.close();

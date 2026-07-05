@@ -11,6 +11,8 @@
 - 🎁 Пробный период (настраиваемый) для новых пользователей
 - 🛒 Покупка и продление тарифов
 - 🛡 VPN Hub: статус подписки, срок, трафик, остаток, health-рекомендации
+- 📲 Telegram WebApp-кабинет: обзор подписки, тарифы и быстрые действия внутри Mini App
+- 📱 Self-service устройства: просмотр привязанных HWID, удаление одного устройства или сброс всех
 - 🧭 Гайды по настройке для iOS, Android, Windows, macOS и Android TV
 - 🔗 Прямая ссылка на конфигурацию подписки
 - 👥 Реферальная программа с бонусными днями за приглашённых друзей
@@ -39,6 +41,7 @@
 ```
 tessera-telegram  ─┐
 tessera-ops       ─┤
+tessera-webapp    ─┤
                    ├─> tessera-services ─┬─> tessera-experience
 tessera-modules   ─┘                     ├─> tessera-db
                                          ├─> tessera-remnawave
@@ -49,7 +52,8 @@ tessera-app wires everything together and starts Telegram long polling.
 tessera-payment and tessera-dashboard are runtime plugin JARs loaded from modules/.
 ```
 
-Слои разделены по ответственности: **tessera-telegram** (I/O Telegram) →
+Слои разделены по ответственности: **tessera-telegram** (I/O Telegram),
+**tessera-webapp** (Telegram Mini App UI/API) →
 **tessera-ops** (health, metrics, webhooks, backups, alerts) и
 **tessera-services** (use-cases, бизнес-правила и продуктовая аналитика) →
 **tessera-experience** (VPN Hub, setup-guides, health-инсайты) +
@@ -92,6 +96,9 @@ cp .env.example .env   # заполните значения
 | `REMNAWAVE_DEFAULT_SQUAD_UUID` | сквад по умолчанию для новых юзеров |
 | `TRIAL_DAYS` / `TRIAL_TRAFFIC_GB` | параметры пробного периода |
 | `REFERRAL_REWARD_DAYS` | бонус рефереру за активацию приглашённого |
+| `WEBAPP_PUBLIC_URL` | публичный HTTPS URL Telegram WebApp-кабинета |
+| `WEBAPP_PORT` | локальный порт WebApp-сервера (по умолчанию `8090`) |
+| `WEBAPP_DEVICE_RESET_LIMIT_PER_DAY` | лимит пользовательских действий с устройствами в сутки |
 
 ## Получение API-токена Remnawave
 
@@ -128,6 +135,7 @@ tessera-vpn-bot
 ├── tessera-remnawave/   # typed Remnawave API client + DTO
 ├── tessera-services/    # business use-cases: subscriptions, payments, referrals, support
 ├── tessera-ops/         # health, metrics, payment webhooks, backups, alerts
+├── tessera-webapp/      # Telegram Mini App cabinet + signed initData API
 ├── tessera-modules/     # runtime module loader + module context bridge
 ├── tessera-telegram/    # Telegram adapter: bot router, handlers, keyboards
 ├── tessera-app/         # тонкий bootstrap (tessera-vpn-bot.jar)
@@ -284,3 +292,21 @@ pg_restore --clean --if-exists \
 Ops port в `docker-compose.yml` привязан к `127.0.0.1`. Для публичных webhooks
 выведите только `/webhooks/payments/...` через TLS reverse proxy и оставьте
 `/metrics` / `/ops/backups/run` закрытыми.
+
+## Update 6 — Telegram WebApp cabinet & device self-service
+
+- **Новый модуль `tessera-webapp`**: встроенный JDK HttpServer на `WEBAPP_PORT`
+  отдаёт Telegram Mini App UI и JSON API (`/api/me`, `/api/devices/...`).
+- **Telegram WebApp-кнопка в боте**: если задан `WEBAPP_PUBLIC_URL`, в главном меню
+  и карточке подписки появляется кнопка «📲 Кабинет». URL должен быть публичным HTTPS
+  адресом reverse proxy, а домен нужно разрешить в @BotFather.
+- **Подписанный вход**: backend принимает только `Telegram.WebApp.initData`,
+  проверяет HMAC-SHA256 подпись и свежесть `auth_date` по официальной схеме
+  Telegram Mini Apps: https://core.telegram.org/bots/webapps.
+- **Self-service HWID**: пользователь видит только замаскированные устройства своей
+  подписки и может удалить одно устройство или сбросить все. Клиент не передаёт UUID
+  пользователя или raw HWID; сервер сам резолвит подписку по Telegram ID.
+- **Антиабуз**: операции с устройствами лимитируются через
+  `WEBAPP_DEVICE_RESET_LIMIT_PER_DAY` (0 отключает лимит).
+- **Docker**: контейнер слушает `8090`, compose публикует его на `127.0.0.1`.
+  Для прода прокиньте порт через nginx/caddy с TLS и установите `WEBAPP_PUBLIC_URL`.

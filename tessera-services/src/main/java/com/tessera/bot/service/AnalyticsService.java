@@ -49,7 +49,10 @@ public final class AnalyticsService {
         PAYMENT_CONFIRMED("payment_confirmed"),
         TRIAL_ACTIVATED("trial_activated"),
         SUPPORT_CREATED("support_created"),
-        REFERRAL_OPENED("referral_opened");
+        REFERRAL_OPENED("referral_opened"),
+        WEBAPP_OPENED("webapp_opened"),
+        WEBAPP_DEVICE_REMOVED("webapp_device_removed"),
+        WEBAPP_DEVICES_RESET("webapp_devices_reset");
 
         private final String key;
 

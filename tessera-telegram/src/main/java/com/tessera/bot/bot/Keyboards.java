@@ -6,9 +6,11 @@ import com.tessera.bot.db.Plans;
 import com.tessera.experience.DevicePlatform;
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.InlineKeyboardMarkup;
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.InlineKeyboardButton;
+import org.telegram.telegrambots.meta.api.objects.webapp.WebAppInfo;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 
 /** Builders for the inline keyboards used across the bot. All labels are localized. */
 public final class Keyboards {
@@ -17,7 +19,16 @@ public final class Keyboards {
 
     public static InlineKeyboardMarkup mainMenu(Messages m, Lang lang,
                                                 boolean hasSubscription, boolean trialAvailable) {
+        return mainMenu(m, lang, hasSubscription, trialAvailable, null);
+    }
+
+    public static InlineKeyboardMarkup mainMenu(Messages m, Lang lang,
+                                                boolean hasSubscription, boolean trialAvailable,
+                                                String webAppUrl) {
         List<List<InlineKeyboardButton>> rows = new ArrayList<>();
+        if (hasWebApp(webAppUrl)) {
+            rows.add(List.of(webAppBtn(m.t(lang, "btn.cabinet"), webAppUrl)));
+        }
         rows.add(List.of(btn(m.t(lang, "btn.buy"), Callbacks.MENU_BUY)));
         if (hasSubscription) {
             rows.add(List.of(btn(m.t(lang, "btn.vpn_hub"), Callbacks.MENU_SUB)));
@@ -64,7 +75,15 @@ public final class Keyboards {
     }
 
     public static InlineKeyboardMarkup subscriptionActions(Messages m, Lang lang, String subscriptionUrl) {
+        return subscriptionActions(m, lang, subscriptionUrl, null);
+    }
+
+    public static InlineKeyboardMarkup subscriptionActions(Messages m, Lang lang,
+                                                           String subscriptionUrl, String webAppUrl) {
         List<List<InlineKeyboardButton>> rows = new ArrayList<>();
+        if (hasWebApp(webAppUrl)) {
+            rows.add(List.of(webAppBtn(m.t(lang, "btn.cabinet"), webAppUrl)));
+        }
         if (subscriptionUrl != null && !subscriptionUrl.isBlank()) {
             rows.add(List.of(InlineKeyboardButton.builder()
                     .text(m.t(lang, "btn.open_sub")).url(subscriptionUrl).build()));
@@ -230,6 +249,17 @@ public final class Keyboards {
 
     public static InlineKeyboardButton btn(String text, String callbackData) {
         return InlineKeyboardButton.builder().text(text).callbackData(callbackData).build();
+    }
+
+    private static boolean hasWebApp(String url) {
+        return url != null && url.trim().toLowerCase(Locale.ROOT).startsWith("https://");
+    }
+
+    private static InlineKeyboardButton webAppBtn(String text, String url) {
+        return InlineKeyboardButton.builder()
+                .text(text)
+                .webApp(WebAppInfo.builder().url(url).build())
+                .build();
     }
 // ---- payments ----
 

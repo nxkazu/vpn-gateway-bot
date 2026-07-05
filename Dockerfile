@@ -28,9 +28,10 @@ ENV JAVA_OPTS="-XX:MaxRAMPercentage=75.0" \
     MODULES_DIR=/app/modules \
     MODULES_CONFIG_DIR=/app/config \
     DASHBOARD_BIND=0.0.0.0 \
+    WEBAPP_BIND=0.0.0.0 \
     OPS_BIND=0.0.0.0 \
     BACKUP_DIR=/app/backups
 
-EXPOSE 8080 9090
+EXPOSE 8080 8090 9090
 
 ENTRYPOINT ["sh", "-c", "java $JAVA_OPTS -jar /app/app.jar"]

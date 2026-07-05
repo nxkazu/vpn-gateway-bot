@@ -51,6 +51,13 @@ public final class AppConfig {
     private final int rateLimitInvoicesPerHour;
     private final int rateLimitSupportPerHour;
 
+    private final boolean webappEnabled;
+    private final String webappBind;
+    private final int webappPort;
+    private final String webappPublicUrl;
+    private final int webappInitDataMaxAgeSeconds;
+    private final int webappDeviceResetLimitPerDay;
+
     private AppConfig(Builder b) {
         this.botToken = b.botToken;
         this.botUsername = b.botUsername;
@@ -84,6 +91,12 @@ public final class AppConfig {
         this.rateLimitCallbacksPerMinute = b.rateLimitCallbacksPerMinute;
         this.rateLimitInvoicesPerHour = b.rateLimitInvoicesPerHour;
         this.rateLimitSupportPerHour = b.rateLimitSupportPerHour;
+        this.webappEnabled = b.webappEnabled;
+        this.webappBind = b.webappBind;
+        this.webappPort = b.webappPort;
+        this.webappPublicUrl = b.webappPublicUrl;
+        this.webappInitDataMaxAgeSeconds = b.webappInitDataMaxAgeSeconds;
+        this.webappDeviceResetLimitPerDay = b.webappDeviceResetLimitPerDay;
     }
 
     public static AppConfig fromEnv() {
@@ -123,6 +136,12 @@ public final class AppConfig {
         b.rateLimitCallbacksPerMinute = Integer.parseInt(env("RATE_LIMIT_CALLBACKS_PER_MINUTE", "60"));
         b.rateLimitInvoicesPerHour = Integer.parseInt(env("RATE_LIMIT_INVOICES_PER_HOUR", "10"));
         b.rateLimitSupportPerHour = Integer.parseInt(env("RATE_LIMIT_SUPPORT_PER_HOUR", "20"));
+        b.webappEnabled = Boolean.parseBoolean(env("WEBAPP_ENABLED", "true"));
+        b.webappBind = env("WEBAPP_BIND", "0.0.0.0");
+        b.webappPort = Integer.parseInt(env("WEBAPP_PORT", "8090"));
+        b.webappPublicUrl = stripTrailingSlash(env("WEBAPP_PUBLIC_URL", ""));
+        b.webappInitDataMaxAgeSeconds = Integer.parseInt(env("WEBAPP_INIT_DATA_MAX_AGE_SECONDS", "86400"));
+        b.webappDeviceResetLimitPerDay = Integer.parseInt(env("WEBAPP_DEVICE_RESET_LIMIT_PER_DAY", "5"));
         return new AppConfig(b);
     }
 
@@ -228,6 +247,12 @@ public final class AppConfig {
     public int rateLimitCallbacksPerMinute() { return rateLimitCallbacksPerMinute; }
     public int rateLimitInvoicesPerHour() { return rateLimitInvoicesPerHour; }
     public int rateLimitSupportPerHour() { return rateLimitSupportPerHour; }
+    public boolean webappEnabled() { return webappEnabled; }
+    public String webappBind() { return webappBind; }
+    public int webappPort() { return webappPort; }
+    public String webappPublicUrl() { return webappPublicUrl; }
+    public int webappInitDataMaxAgeSeconds() { return webappInitDataMaxAgeSeconds; }
+    public int webappDeviceResetLimitPerDay() { return webappDeviceResetLimitPerDay; }
 
     public static final class Builder {
         private String botToken;
@@ -262,5 +287,11 @@ public final class AppConfig {
         private int rateLimitCallbacksPerMinute;
         private int rateLimitInvoicesPerHour;
         private int rateLimitSupportPerHour;
+        private boolean webappEnabled;
+        private String webappBind;
+        private int webappPort;
+        private String webappPublicUrl;
+        private int webappInitDataMaxAgeSeconds;
+        private int webappDeviceResetLimitPerDay;
     }
 }

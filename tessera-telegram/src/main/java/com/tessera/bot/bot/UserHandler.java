@@ -71,7 +71,7 @@ public class UserHandler {
         boolean trialAvailable = config.trialDays() > 0
                 && users.find(telegramId).map(u -> !u.trialUsed).orElse(true)
                 && !hasSub;
-        return Keyboards.mainMenu(m, lang, hasSub, trialAvailable);
+        return Keyboards.mainMenu(m, lang, hasSub, trialAvailable, webAppUrl());
     }
 
     public Reply buyMenu(long telegramId) {
@@ -103,7 +103,7 @@ public class UserHandler {
                 insight.daysLeft(),
                 trafficLine,
                 m.t(lang, insight.advice().messageKey()));
-        return Reply.of(text, Keyboards.subscriptionActions(m, lang, u.subscriptionUrl));
+        return Reply.of(text, Keyboards.subscriptionActions(m, lang, u.subscriptionUrl, webAppUrl()));
     }
 
     public Reply trial(long telegramId) {
@@ -115,7 +115,7 @@ public class UserHandler {
         RemnawaveUser u = created.get();
         analytics.track(telegramId, AnalyticsService.Event.TRIAL_ACTIVATED);
         return Reply.of(m.t(lang, "trial.activated", Formatting.dateTime(u.expireAt)),
-                Keyboards.subscriptionActions(m, lang, u.subscriptionUrl));
+                Keyboards.subscriptionActions(m, lang, u.subscriptionUrl, webAppUrl()));
     }
 
     /**
@@ -171,7 +171,7 @@ public class UserHandler {
             if (outcome instanceof PaymentService.CheckOutcome.Paid paid) {
                 return Reply.of(m.t(lang, "plan.activated", paid.plan().title(),
                                 Formatting.dateTime(paid.user().expireAt)),
-                        Keyboards.subscriptionActions(m, lang, paid.user().subscriptionUrl));
+                        Keyboards.subscriptionActions(m, lang, paid.user().subscriptionUrl, webAppUrl()));
             }
             if (outcome instanceof PaymentService.CheckOutcome.Pending pending) {
                 return Reply.of(m.t(lang, "pay.pending"),
@@ -189,7 +189,7 @@ public class UserHandler {
         referrals.rewardOnActivation(telegramId).ifPresent(refId ->
                 log.info("Referral reward granted to {} for activation by {}", refId, telegramId));
         return Reply.of(m.t(lang, "plan.activated", plan.title(), Formatting.dateTime(u.expireAt)),
-                Keyboards.subscriptionActions(m, lang, u.subscriptionUrl));
+                Keyboards.subscriptionActions(m, lang, u.subscriptionUrl, webAppUrl()));
     }
 
     // --------------------------------------------------------------- promo
@@ -315,5 +315,9 @@ public class UserHandler {
         Lang chosen = Lang.fromCode(code);
         locales.setLanguage(telegramId, chosen);
         return Reply.of(m.t(chosen, "lang.changed"), mainMenu(telegramId, chosen));
+    }
+
+    private String webAppUrl() {
+        return config.webappEnabled() ? config.webappPublicUrl() : "";
     }
 }

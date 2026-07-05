@@ -21,6 +21,7 @@ dependencies {
     implementation(project(":tessera-remnawave"))
     implementation(project(":tessera-services"))
     implementation(project(":tessera-telegram"))
+    implementation(project(":tessera-webapp"))
 
     // Lombok (compile-time boilerplate reduction)
     compileOnly("org.projectlombok:lombok:1.18.46")
