@@ -20,9 +20,11 @@ docker compose up -d --build
 - 4-space indentation for Java, 120-char soft line limit.
 - Prefer Lombok (`@Slf4j`, `@RequiredArgsConstructor`, `@Getter`, `@Builder`) over hand-written boilerplate.
 - Keep the layering intact:
-  `tessera-telegram -> tessera-services/tessera-experience -> {tessera-remnawave, tessera-db}`.
+  `tessera-telegram/tessera-ops -> tessera-services/tessera-experience -> {tessera-remnawave, tessera-db}`.
   The Telegram layer must not talk to the Remnawave API or JDBC directly, and product
   calculations such as subscription health or setup guides belong in `tessera-experience`.
+- Runtime plugins must override `BotModule.apiVersion()` and return `BotModule.API_VERSION`.
+  Do not bypass the loader compatibility check except for local experiments.
 
 ## Internationalization (i18n)
 

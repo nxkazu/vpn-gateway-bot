@@ -1,6 +1,7 @@
 package com.tessera.bot;
 
 import com.tessera.bot.bot.TesseraBot;
+import com.tessera.bot.config.AdminRole;
 import com.tessera.bot.config.AppConfig;
 import com.tessera.bot.db.Database;
 import com.tessera.bot.db.AuditRepository;
@@ -24,10 +25,15 @@ import com.tessera.bot.service.PaymentService;
 import com.tessera.bot.service.PaymentWatcher;
 import com.tessera.bot.db.Plans;
 import com.tessera.bot.service.PromoService;
+import com.tessera.bot.service.RateLimiter;
 import com.tessera.bot.service.ReferralService;
 import com.tessera.bot.service.SubscriptionService;
 import com.tessera.bot.service.SupportService;
 import com.tessera.experience.ExperienceService;
+import com.tessera.ops.DatabaseBackupService;
+import com.tessera.ops.OpsAlertService;
+import com.tessera.ops.OpsHealthService;
+import com.tessera.ops.OpsHttpServer;
 import lombok.extern.slf4j.Slf4j;
 import org.telegram.telegrambots.meta.TelegramBotsApi;
 import org.telegram.telegrambots.updatesreceivers.DefaultBotSession;
@@ -69,6 +75,7 @@ public final class TesseraBotApplication {
         LocaleService locales = new LocaleService(userRepo);
         AnalyticsService analytics = new AnalyticsService(eventRepo);
         ExperienceService experience = new ExperienceService();
+        RateLimiter rateLimiter = new RateLimiter();
 
         NotifierHolder notifier = new NotifierHolder();
 
@@ -77,7 +84,7 @@ public final class TesseraBotApplication {
         ReferralService referrals = new ReferralService(config, referralRepo, panel, subscriptions);
         PromoService promos = new PromoService(promoRepo);
         PaymentService payments = new PaymentService(config, invoiceRepo, subscriptions, referrals, promos, analytics);
-        SupportService support = new SupportService(ticketRepo, config.adminIds(), notifier);
+        SupportService support = new SupportService(ticketRepo, config.adminIdsWithRole(AdminRole.SUPPORT), notifier);
 
         Path modulesDir = Path.of(env("MODULES_DIR", "modules"));
         Path modulesConfigDir = Path.of(env("MODULES_CONFIG_DIR", "config"));
@@ -85,12 +92,27 @@ public final class TesseraBotApplication {
         moduleLoader.loadAll(modulesDir,
                 new AppModuleContext(modulesConfigDir, payments, database.dataSource(), notifier));
 
+        OpsHealthService opsHealth = new OpsHealthService(database.dataSource(), panel, payments);
+        DatabaseBackupService backups = new DatabaseBackupService(config);
+        OpsHttpServer opsHttp = config.opsEnabled()
+                ? new OpsHttpServer(config, opsHealth, backups, payments, locales, messages, notifier)
+                : null;
+        if (opsHttp != null) {
+            opsHttp.start();
+        }
+        backups.startScheduled(config.backupScheduleHours(),
+                error -> config.adminIdsWithRole(AdminRole.OPS).forEach(adminId ->
+                        notifier.sendMessage(adminId, "⚠️ Tessera backup failed: " + error)));
+
         TesseraBot bot = new TesseraBot(config, panel, userRepo, auditRepo,
-                subscriptions, referrals, payments, support, promos, locales, messages, experience, analytics);
+                subscriptions, referrals, payments, support, promos, locales, messages,
+                experience, analytics, rateLimiter);
 
         TelegramBotsApi botsApi = new TelegramBotsApi(DefaultBotSession.class);
         botsApi.registerBot(bot);
         notifier.setDelegate(bot::sendPlain);
+        OpsAlertService opsAlerts = new OpsAlertService(config, opsHealth, notifier);
+        opsAlerts.start();
 
         // Background workers (started after the bot is up so notifications can be delivered).
         PaymentWatcher paymentWatcher = null;
@@ -116,6 +138,9 @@ public final class TesseraBotApplication {
             log.info("Shutting down...");
             if (finalWatcher != null) finalWatcher.close();
             if (finalExpiry != null) finalExpiry.close();
+            opsAlerts.close();
+            if (opsHttp != null) opsHttp.close();
+            backups.close();
             moduleLoader.close();
             database.close();
         }));

@@ -1,6 +1,7 @@
 package com.tessera.bot.bot;
 
 import com.tessera.bot.config.AppConfig;
+import com.tessera.bot.config.AdminRole;
 import com.tessera.bot.db.AuditRepository;
 import com.tessera.bot.db.UserRepository;
 import com.tessera.i18n.Lang;
@@ -10,6 +11,7 @@ import com.tessera.bot.remnawave.RemnawaveClient;
 import com.tessera.bot.service.PaymentService;
 import com.tessera.bot.service.AnalyticsService;
 import com.tessera.bot.service.PromoService;
+import com.tessera.bot.service.RateLimiter;
 import com.tessera.bot.service.ReferralService;
 import com.tessera.bot.service.SubscriptionService;
 import com.tessera.bot.service.SupportService;
@@ -27,7 +29,9 @@ import org.telegram.telegrambots.meta.api.objects.Update;
 import org.telegram.telegrambots.meta.api.objects.User;
 import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
 
+import java.time.Duration;
 import java.util.List;
+import java.util.function.Supplier;
 
 /**
  * The Telegram long-polling bot. Acts as a thin router: it extracts intent from
@@ -42,19 +46,22 @@ public class TesseraBot extends TelegramLongPollingBot {
     private final AdminHandler adminHandler;
     private final UserRepository users;
     private final LocaleService locales;
+    private final RateLimiter rateLimiter;
     private final UserState state = new UserState();
 
     public TesseraBot(AppConfig config, RemnawaveClient panel, UserRepository users, AuditRepository audit,
                       SubscriptionService subscriptions, ReferralService referrals,
                       PaymentService payments, SupportService support, PromoService promos,
                       LocaleService locales, Messages messages,
-                      ExperienceService experience, AnalyticsService analytics) {
+                      ExperienceService experience, AnalyticsService analytics,
+                      RateLimiter rateLimiter) {
         super(config.botToken());
         this.config = config;
         this.users = users;
         this.locales = locales;
+        this.rateLimiter = rateLimiter;
         this.userHandler = new UserHandler(config, users, subscriptions, referrals,
-                payments, support, promos, locales, messages, experience, analytics);
+                payments, support, promos, locales, messages, experience, analytics, rateLimiter);
         this.adminHandler = new AdminHandler(config, panel, users, subscriptions, audit, messages);
     }
 
@@ -85,6 +92,10 @@ public class TesseraBot extends TelegramLongPollingBot {
         long chatId = msg.getChatId();
         User from = msg.getFrom();
         String text = msg.getText().trim();
+        if (limited(from.getId(), "msg", config.rateLimitMessagesPerMinute(), Duration.ofMinutes(1))) {
+            send(chatId, userHandler.rateLimited(from.getId()));
+            return;
+        }
 
         UserState.Await awaiting = state.get(chatId);
         if (awaiting == UserState.Await.SUPPORT_TEXT) {
@@ -135,6 +146,10 @@ public class TesseraBot extends TelegramLongPollingBot {
         long chatId = msg.getChatId();
         User from = msg.getFrom();
         String caption = msg.getCaption() != null ? msg.getCaption().trim() : "";
+        if (limited(from.getId(), "msg", config.rateLimitMessagesPerMinute(), Duration.ofMinutes(1))) {
+            send(chatId, userHandler.rateLimited(from.getId()));
+            return;
+        }
 
         String fileId;
         String fileName;
@@ -170,14 +185,28 @@ public class TesseraBot extends TelegramLongPollingBot {
         Lang lang = locales.forUser(adminId);
         switch (awaiting) {
             case BROADCAST_TEXT -> {
+                if (!adminHandler.can(adminId, AdminRole.SUPERADMIN)) {
+                    send(chatId, adminHandler.denied(lang));
+                    return;
+                }
                 String segment = payload == null ? "all" : payload;
                 int count = adminHandler.recipientsForSegment(segment).size();
                 state.setPendingBroadcast(chatId, segment, text);
                 String preview = text.length() > 200 ? text.substring(0, 200) + "\u2026" : text;
                 send(chatId, adminHandler.broadcastConfirm(lang, count, preview));
             }
-            case FIND_USER_QUERY -> send(chatId, adminHandler.findUser(lang, text));
+            case FIND_USER_QUERY -> {
+                if (!adminHandler.can(adminId, AdminRole.SUPPORT)) {
+                    send(chatId, adminHandler.denied(lang));
+                    return;
+                }
+                send(chatId, adminHandler.findUser(lang, text));
+            }
             case ADD_DAYS -> {
+                if (!adminHandler.can(adminId, AdminRole.BILLING)) {
+                    send(chatId, adminHandler.denied(lang));
+                    return;
+                }
                 try {
                     int days = Integer.parseInt(text.trim());
                     send(chatId, adminHandler.applyAddDays(lang, adminId, payload, days));
@@ -186,6 +215,10 @@ public class TesseraBot extends TelegramLongPollingBot {
                 }
             }
             case SET_TRAFFIC -> {
+                if (!adminHandler.can(adminId, AdminRole.BILLING)) {
+                    send(chatId, adminHandler.denied(lang));
+                    return;
+                }
                 try {
                     long gb = Long.parseLong(text.trim());
                     send(chatId, adminHandler.applyTraffic(lang, adminId, payload, gb));
@@ -193,7 +226,13 @@ public class TesseraBot extends TelegramLongPollingBot {
                     send(chatId, adminHandler.badNumber(lang, payload));
                 }
             }
-            case CREATE_SUB -> send(chatId, adminHandler.applyCreateSub(lang, adminId, text));
+            case CREATE_SUB -> {
+                if (!adminHandler.can(adminId, AdminRole.BILLING)) {
+                    send(chatId, adminHandler.denied(lang));
+                    return;
+                }
+                send(chatId, adminHandler.applyCreateSub(lang, adminId, text));
+            }
             default -> { /* no-op */ }
         }
     }
@@ -220,6 +259,10 @@ public class TesseraBot extends TelegramLongPollingBot {
         int messageId = cq.getMessage().getMessageId();
         User from = cq.getFrom();
         long userId = from.getId();
+        if (limited(userId, "cb", config.rateLimitCallbacksPerMinute(), Duration.ofMinutes(1))) {
+            execute(AnswerCallbackQuery.builder().callbackQueryId(cq.getId()).text("Rate limited").build());
+            return;
+        }
 
         Reply reply = route(data, userId, chatId);
         if (reply != null) {
@@ -293,21 +336,27 @@ public class TesseraBot extends TelegramLongPollingBot {
         Lang lang = locales.forUser(userId);
         switch (data) {
             case Callbacks.ADMIN_MAIN -> { return adminHandler.menu(lang); }
-            case Callbacks.ADMIN_DASHBOARD -> { return adminHandler.dashboard(lang); }
-            case Callbacks.ADMIN_STATS -> { return adminHandler.stats(lang); }
-            case Callbacks.ADMIN_HEALTH -> { return adminHandler.health(lang); }
-            case Callbacks.ADMIN_USERS -> { return adminHandler.listUsers(lang, 0); }
-            case Callbacks.ADMIN_SQUADS -> { return adminHandler.squads(lang); }
-            case Callbacks.ADMIN_AUDIT -> { return adminHandler.audit(lang); }
-            case Callbacks.ADMIN_SETTINGS -> { return adminHandler.settings(lang); }
-            case Callbacks.ADMIN_NODES -> { return adminHandler.nodes(lang); }
-            case Callbacks.ADMIN_NODE_RESTART_ALL -> { return adminHandler.restartAllNodes(lang); }
-            case Callbacks.ADMIN_BROADCAST -> { return adminHandler.broadcastMenu(lang); }
+            case Callbacks.ADMIN_DASHBOARD -> { return requireRole(userId, lang, AdminRole.OPS, () -> adminHandler.dashboard(lang)); }
+            case Callbacks.ADMIN_STATS -> { return requireRole(userId, lang, AdminRole.OPS, () -> adminHandler.stats(lang)); }
+            case Callbacks.ADMIN_HEALTH -> { return requireRole(userId, lang, AdminRole.OPS, () -> adminHandler.health(lang)); }
+            case Callbacks.ADMIN_USERS -> { return requireRole(userId, lang, AdminRole.SUPPORT, () -> adminHandler.listUsers(lang, 0)); }
+            case Callbacks.ADMIN_SQUADS -> { return requireRole(userId, lang, AdminRole.OPS, () -> adminHandler.squads(lang)); }
+            case Callbacks.ADMIN_AUDIT -> { return requireRole(userId, lang, AdminRole.OPS, () -> adminHandler.audit(lang)); }
+            case Callbacks.ADMIN_SETTINGS -> { return requireRole(userId, lang, AdminRole.OPS, () -> adminHandler.settings(lang)); }
+            case Callbacks.ADMIN_NODES -> { return requireRole(userId, lang, AdminRole.OPS, () -> adminHandler.nodes(lang)); }
+            case Callbacks.ADMIN_NODE_RESTART_ALL -> {
+                return requireRole(userId, lang, AdminRole.OPS, () -> adminHandler.restartAllNodes(lang));
+            }
+            case Callbacks.ADMIN_BROADCAST -> {
+                return requireRole(userId, lang, AdminRole.SUPERADMIN, () -> adminHandler.broadcastMenu(lang));
+            }
             case Callbacks.ADMIN_CREATE_SUB -> {
+                if (!adminHandler.can(userId, AdminRole.BILLING)) return adminHandler.denied(lang);
                 state.set(chatId, UserState.Await.CREATE_SUB);
                 return adminHandler.createSubPrompt(lang);
             }
             case Callbacks.ADMIN_BC_CONFIRM -> {
+                if (!adminHandler.can(userId, AdminRole.SUPERADMIN)) return adminHandler.denied(lang);
                 String[] pending = state.getPendingBroadcast(chatId);
                 state.clearPendingBroadcast(chatId);
                 if (pending == null) return adminHandler.menu(lang);
@@ -319,6 +368,7 @@ public class TesseraBot extends TelegramLongPollingBot {
                 return adminHandler.broadcastCancelled(lang);
             }
             case Callbacks.ADMIN_FIND_USER -> {
+                if (!adminHandler.can(userId, AdminRole.SUPPORT)) return adminHandler.denied(lang);
                 state.set(chatId, UserState.Await.FIND_USER_QUERY);
                 return adminHandler.findPrompt(lang);
             }
@@ -326,18 +376,21 @@ public class TesseraBot extends TelegramLongPollingBot {
         }
         // Broadcast segment chosen -> ask for the message text.
         if (data.startsWith(Callbacks.ADMIN_BC_PREFIX)) {
+            if (!adminHandler.can(userId, AdminRole.SUPERADMIN)) return adminHandler.denied(lang);
             String seg = data.substring(Callbacks.ADMIN_BC_PREFIX.length());
             state.set(chatId, UserState.Await.BROADCAST_TEXT, seg);
             return adminHandler.broadcastPrompt(lang);
         }
         // Paginated user list.
         if (data.startsWith(Callbacks.ADMIN_USERS_PAGE_PREFIX)) {
+            if (!adminHandler.can(userId, AdminRole.SUPPORT)) return adminHandler.denied(lang);
             String p = data.substring(Callbacks.ADMIN_USERS_PAGE_PREFIX.length());
             try { return adminHandler.listUsers(lang, Integer.parseInt(p)); }
             catch (NumberFormatException e) { return adminHandler.listUsers(lang, 0); }
         }
         // Per-node actions.
         if (data.startsWith(Callbacks.ADMIN_NODE_PREFIX)) {
+            if (!adminHandler.can(userId, AdminRole.OPS)) return adminHandler.denied(lang);
             String rest = data.substring(Callbacks.ADMIN_NODE_PREFIX.length());
             int idx = rest.indexOf(':');
             if (idx > 0) {
@@ -356,6 +409,8 @@ public class TesseraBot extends TelegramLongPollingBot {
                 String action = parts[0];
                 String uuid = parts[1];
                 String extra = parts.length >= 3 ? parts[2] : null;
+                AdminRole required = roleForUserAction(action);
+                if (!adminHandler.can(userId, required)) return adminHandler.denied(lang);
                 switch (action) {
                     case "card" -> { return adminHandler.userCard(lang, uuid); }
                     case "adddaysx" -> {
@@ -385,6 +440,24 @@ public class TesseraBot extends TelegramLongPollingBot {
             }
         }
         return adminHandler.menu(lang);
+    }
+
+    private Reply requireRole(long userId, Lang lang, AdminRole role, Supplier<Reply> action) {
+        return adminHandler.can(userId, role) ? action.get() : adminHandler.denied(lang);
+    }
+
+    private AdminRole roleForUserAction(String action) {
+        return switch (action) {
+            case "adddays", "adddaysx", "traffic" -> AdminRole.BILLING;
+            case "delete" -> AdminRole.SUPERADMIN;
+            case "enable", "disable", "revoke", "reset", "hwiddel", "squadtog" -> AdminRole.OPS;
+            default -> AdminRole.SUPPORT;
+        };
+    }
+
+    private boolean limited(long userId, String scope, int limit, Duration window) {
+        return !adminHandler.isAdmin(userId)
+                && !rateLimiter.allow(scope + ":" + userId, limit, window);
     }
 
     // -------------------------------------------------------------- sending

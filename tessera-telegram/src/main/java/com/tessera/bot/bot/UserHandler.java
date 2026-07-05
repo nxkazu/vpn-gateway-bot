@@ -10,6 +10,7 @@ import com.tessera.bot.service.PaymentService;
 import com.tessera.bot.db.Plans;
 import com.tessera.bot.service.AnalyticsService;
 import com.tessera.bot.service.PromoService;
+import com.tessera.bot.service.RateLimiter;
 import com.tessera.bot.service.ReferralService;
 import com.tessera.bot.service.SubscriptionService;
 import com.tessera.bot.service.SupportService;
@@ -22,6 +23,7 @@ import org.telegram.telegrambots.meta.api.objects.replykeyboard.InlineKeyboardMa
 
 import java.util.Optional;
 import java.util.Map;
+import java.time.Duration;
 
 /** Handles all non-admin user interactions. Returns localized {@link Reply} objects. */
 @Slf4j
@@ -39,6 +41,7 @@ public class UserHandler {
     private final Messages m;
     private final ExperienceService experience;
     private final AnalyticsService analytics;
+    private final RateLimiter rateLimiter;
 
     private Lang lang(long telegramId) {
         return locales.forUser(telegramId);
@@ -141,6 +144,11 @@ public class UserHandler {
     /** Creates an invoice with the chosen provider and shows pay / check buttons. */
     public Reply payWith(long telegramId, String providerId, String planCode, String promoCode) {
         Lang lang = lang(telegramId);
+        if (!config.isAdmin(telegramId)
+                && !rateLimiter.allow("invoice:" + telegramId,
+                        config.rateLimitInvoicesPerHour(), Duration.ofHours(1))) {
+            return Reply.of(m.t(lang, "rate.invoice"), Keyboards.backTo(m, lang, Callbacks.MENU_BUY));
+        }
         Plans.Plan plan = Plans.byCode(planCode);
         if (plan == null) {
             return Reply.of(m.t(lang, "plan.unknown"), Keyboards.backTo(m, lang, Callbacks.MENU_BUY));
@@ -241,6 +249,11 @@ public class UserHandler {
     public Reply supportSubmit(long telegramId, String username, String text,
                                String attachmentFileId, String attachmentName) {
         Lang lang = lang(telegramId);
+        if (!config.isAdmin(telegramId)
+                && !rateLimiter.allow("support:" + telegramId,
+                        config.rateLimitSupportPerHour(), Duration.ofHours(1))) {
+            return Reply.of(m.t(lang, "rate.support"), Keyboards.backTo(m, lang, Callbacks.MENU_MAIN));
+        }
         SupportService.Submitted s = support.submitUserMessage(
                 telegramId, username, text, attachmentFileId, attachmentName);
         analytics.track(telegramId, AnalyticsService.Event.SUPPORT_CREATED,
@@ -263,6 +276,11 @@ public class UserHandler {
     public Reply help(long telegramId) {
         Lang lang = lang(telegramId);
         return Reply.of(m.t(lang, "help"), Keyboards.backTo(m, lang, Callbacks.MENU_MAIN));
+    }
+
+    public Reply rateLimited(long telegramId) {
+        Lang lang = lang(telegramId);
+        return Reply.of(m.t(lang, "rate.limited"), Keyboards.backTo(m, lang, Callbacks.MENU_MAIN));
     }
 
     public Reply setupMenu(long telegramId) {

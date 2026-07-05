@@ -24,6 +24,11 @@ public final class DashboardModule implements BotModule {
     }
 
     @Override
+    public int apiVersion() {
+        return API_VERSION;
+    }
+
+    @Override
     public void init(ModuleContext ctx) throws Exception {
         String token = ctx.env("DASHBOARD_TOKEN", "");
         if (token.isBlank()) {

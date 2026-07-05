@@ -1,5 +1,8 @@
 package com.tessera.bot.config;
 
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Map;
 import java.util.Arrays;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -13,6 +16,7 @@ public final class AppConfig {
     private final String botToken;
     private final String botUsername;
     private final Set<Long> adminIds;
+    private final Map<Long, Set<AdminRole>> adminRoles;
 
     private final String remnawaveBaseUrl;
     private final String remnawaveToken;
@@ -30,10 +34,28 @@ public final class AppConfig {
     private final String defaultTrafficStrategy;
     private final boolean allowFreeActivation;
 
+    private final String opsBind;
+    private final boolean opsEnabled;
+    private final int opsPort;
+    private final String opsToken;
+    private final boolean opsHealthPublic;
+    private final String paymentWebhookSecret;
+    private final int opsAlertIntervalSeconds;
+    private final int backupScheduleHours;
+    private final int backupRetentionDays;
+    private final String backupDirectory;
+    private final String pgDumpBin;
+
+    private final int rateLimitMessagesPerMinute;
+    private final int rateLimitCallbacksPerMinute;
+    private final int rateLimitInvoicesPerHour;
+    private final int rateLimitSupportPerHour;
+
     private AppConfig(Builder b) {
         this.botToken = b.botToken;
         this.botUsername = b.botUsername;
         this.adminIds = b.adminIds;
+        this.adminRoles = b.adminRoles;
         this.remnawaveBaseUrl = b.remnawaveBaseUrl;
         this.remnawaveToken = b.remnawaveToken;
         this.defaultSquadUuid = b.defaultSquadUuid;
@@ -47,17 +69,29 @@ public final class AppConfig {
         this.referralRewardDays = b.referralRewardDays;
         this.defaultTrafficStrategy = b.defaultTrafficStrategy;
         this.allowFreeActivation = b.allowFreeActivation;
+        this.opsBind = b.opsBind;
+        this.opsEnabled = b.opsEnabled;
+        this.opsPort = b.opsPort;
+        this.opsToken = b.opsToken;
+        this.opsHealthPublic = b.opsHealthPublic;
+        this.paymentWebhookSecret = b.paymentWebhookSecret;
+        this.opsAlertIntervalSeconds = b.opsAlertIntervalSeconds;
+        this.backupScheduleHours = b.backupScheduleHours;
+        this.backupRetentionDays = b.backupRetentionDays;
+        this.backupDirectory = b.backupDirectory;
+        this.pgDumpBin = b.pgDumpBin;
+        this.rateLimitMessagesPerMinute = b.rateLimitMessagesPerMinute;
+        this.rateLimitCallbacksPerMinute = b.rateLimitCallbacksPerMinute;
+        this.rateLimitInvoicesPerHour = b.rateLimitInvoicesPerHour;
+        this.rateLimitSupportPerHour = b.rateLimitSupportPerHour;
     }
 
     public static AppConfig fromEnv() {
         Builder b = new Builder();
         b.botToken = required("BOT_TOKEN");
         b.botUsername = required("BOT_USERNAME");
-        b.adminIds = Arrays.stream(env("ADMIN_IDS", "").split(","))
-                .map(String::trim)
-                .filter(s -> !s.isEmpty())
-                .map(Long::parseLong)
-                .collect(Collectors.toUnmodifiableSet());
+        b.adminRoles = parseAdminRoles();
+        b.adminIds = b.adminRoles.keySet();
 
         b.remnawaveBaseUrl = stripTrailingSlash(required("REMNAWAVE_BASE_URL"));
         b.remnawaveToken = required("REMNAWAVE_TOKEN");
@@ -74,7 +108,59 @@ public final class AppConfig {
         b.referralRewardDays = Integer.parseInt(env("REFERRAL_REWARD_DAYS", "15"));
         b.defaultTrafficStrategy = env("DEFAULT_TRAFFIC_STRATEGY", "MONTH");
         b.allowFreeActivation = Boolean.parseBoolean(env("ALLOW_FREE_ACTIVATION", "false"));
+        b.opsBind = env("OPS_BIND", "0.0.0.0");
+        b.opsEnabled = Boolean.parseBoolean(env("OPS_ENABLED", "true"));
+        b.opsPort = Integer.parseInt(env("OPS_PORT", "9090"));
+        b.opsToken = env("OPS_TOKEN", "");
+        b.opsHealthPublic = Boolean.parseBoolean(env("OPS_HEALTH_PUBLIC", "true"));
+        b.paymentWebhookSecret = env("PAYMENT_WEBHOOK_SECRET", "");
+        b.opsAlertIntervalSeconds = Integer.parseInt(env("OPS_ALERT_INTERVAL_SECONDS", "300"));
+        b.backupScheduleHours = Integer.parseInt(env("BACKUP_SCHEDULE_HOURS", "24"));
+        b.backupRetentionDays = Integer.parseInt(env("BACKUP_RETENTION_DAYS", "7"));
+        b.backupDirectory = env("BACKUP_DIR", "backups");
+        b.pgDumpBin = env("PG_DUMP_BIN", "pg_dump");
+        b.rateLimitMessagesPerMinute = Integer.parseInt(env("RATE_LIMIT_MESSAGES_PER_MINUTE", "30"));
+        b.rateLimitCallbacksPerMinute = Integer.parseInt(env("RATE_LIMIT_CALLBACKS_PER_MINUTE", "60"));
+        b.rateLimitInvoicesPerHour = Integer.parseInt(env("RATE_LIMIT_INVOICES_PER_HOUR", "10"));
+        b.rateLimitSupportPerHour = Integer.parseInt(env("RATE_LIMIT_SUPPORT_PER_HOUR", "20"));
         return new AppConfig(b);
+    }
+
+    private static Map<Long, Set<AdminRole>> parseAdminRoles() {
+        Map<Long, Set<AdminRole>> roles = new HashMap<>();
+        addRoleList(roles, env("ADMIN_IDS", ""), AdminRole.SUPERADMIN);
+        addRoleList(roles, env("ADMIN_SUPERADMIN_IDS", ""), AdminRole.SUPERADMIN);
+        addRoleList(roles, env("ADMIN_SUPPORT_IDS", ""), AdminRole.SUPPORT);
+        addRoleList(roles, env("ADMIN_BILLING_IDS", ""), AdminRole.BILLING);
+        addRoleList(roles, env("ADMIN_OPS_IDS", ""), AdminRole.OPS);
+
+        String matrix = env("ADMIN_ROLES", "");
+        for (String entry : matrix.split(";")) {
+            String item = entry.trim();
+            if (item.isBlank()) continue;
+            int sep = item.indexOf(':');
+            if (sep < 1) continue;
+            long telegramId = Long.parseLong(item.substring(0, sep).trim());
+            for (String rawRole : item.substring(sep + 1).split(",")) {
+                String normalized = rawRole.trim().toUpperCase().replace('-', '_');
+                if (normalized.isBlank()) continue;
+                roles.computeIfAbsent(telegramId, ignored -> new HashSet<>())
+                        .add(AdminRole.valueOf(normalized));
+            }
+        }
+
+        Map<Long, Set<AdminRole>> out = new HashMap<>();
+        roles.forEach((id, rs) -> out.put(id, Set.copyOf(rs)));
+        return Map.copyOf(out);
+    }
+
+    private static void addRoleList(Map<Long, Set<AdminRole>> roles, String csv, AdminRole role) {
+        for (String raw : csv.split(",")) {
+            String item = raw.trim();
+            if (item.isEmpty()) continue;
+            long telegramId = Long.parseLong(item);
+            roles.computeIfAbsent(telegramId, ignored -> new HashSet<>()).add(role);
+        }
     }
 
     private static String env(String key, String def) {
@@ -97,7 +183,17 @@ public final class AppConfig {
     public String botToken() { return botToken; }
     public String botUsername() { return botUsername; }
     public Set<Long> adminIds() { return adminIds; }
-    public boolean isAdmin(long telegramId) { return adminIds.contains(telegramId); }
+    public Map<Long, Set<AdminRole>> adminRoles() { return adminRoles; }
+    public boolean isAdmin(long telegramId) { return adminRoles.containsKey(telegramId); }
+    public boolean hasRole(long telegramId, AdminRole role) {
+        Set<AdminRole> roles = adminRoles.getOrDefault(telegramId, Set.of());
+        return roles.contains(AdminRole.SUPERADMIN) || roles.contains(role);
+    }
+    public Set<Long> adminIdsWithRole(AdminRole role) {
+        return adminRoles.keySet().stream()
+                .filter(id -> hasRole(id, role))
+                .collect(Collectors.toUnmodifiableSet());
+    }
 
     public String remnawaveBaseUrl() { return remnawaveBaseUrl; }
     public String remnawaveToken() { return remnawaveToken; }
@@ -106,6 +202,9 @@ public final class AppConfig {
     public String jdbcUrl() {
         return "jdbc:postgresql://" + dbHost + ":" + dbPort + "/" + dbName;
     }
+    public String dbHost() { return dbHost; }
+    public int dbPort() { return dbPort; }
+    public String dbName() { return dbName; }
     public String dbUser() { return dbUser; }
     public String dbPassword() { return dbPassword; }
 
@@ -114,11 +213,27 @@ public final class AppConfig {
     public int referralRewardDays() { return referralRewardDays; }
     public String defaultTrafficStrategy() { return defaultTrafficStrategy; }
     public boolean allowFreeActivation() { return allowFreeActivation; }
+    public String opsBind() { return opsBind; }
+    public boolean opsEnabled() { return opsEnabled; }
+    public int opsPort() { return opsPort; }
+    public String opsToken() { return opsToken; }
+    public boolean opsHealthPublic() { return opsHealthPublic; }
+    public String paymentWebhookSecret() { return paymentWebhookSecret; }
+    public int opsAlertIntervalSeconds() { return opsAlertIntervalSeconds; }
+    public int backupScheduleHours() { return backupScheduleHours; }
+    public int backupRetentionDays() { return backupRetentionDays; }
+    public String backupDirectory() { return backupDirectory; }
+    public String pgDumpBin() { return pgDumpBin; }
+    public int rateLimitMessagesPerMinute() { return rateLimitMessagesPerMinute; }
+    public int rateLimitCallbacksPerMinute() { return rateLimitCallbacksPerMinute; }
+    public int rateLimitInvoicesPerHour() { return rateLimitInvoicesPerHour; }
+    public int rateLimitSupportPerHour() { return rateLimitSupportPerHour; }
 
     public static final class Builder {
         private String botToken;
         private String botUsername;
         private Set<Long> adminIds;
+        private Map<Long, Set<AdminRole>> adminRoles;
         private String remnawaveBaseUrl;
         private String remnawaveToken;
         private String defaultSquadUuid;
@@ -132,5 +247,20 @@ public final class AppConfig {
         private int referralRewardDays;
         private String defaultTrafficStrategy;
         private boolean allowFreeActivation;
+        private String opsBind;
+        private boolean opsEnabled;
+        private int opsPort;
+        private String opsToken;
+        private boolean opsHealthPublic;
+        private String paymentWebhookSecret;
+        private int opsAlertIntervalSeconds;
+        private int backupScheduleHours;
+        private int backupRetentionDays;
+        private String backupDirectory;
+        private String pgDumpBin;
+        private int rateLimitMessagesPerMinute;
+        private int rateLimitCallbacksPerMinute;
+        private int rateLimitInvoicesPerHour;
+        private int rateLimitSupportPerHour;
     }
 }

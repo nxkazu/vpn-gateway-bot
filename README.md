@@ -38,6 +38,7 @@
 
 ```
 tessera-telegram  ─┐
+tessera-ops       ─┤
                    ├─> tessera-services ─┬─> tessera-experience
 tessera-modules   ─┘                     ├─> tessera-db
                                          ├─> tessera-remnawave
@@ -49,6 +50,7 @@ tessera-payment and tessera-dashboard are runtime plugin JARs loaded from module
 ```
 
 Слои разделены по ответственности: **tessera-telegram** (I/O Telegram) →
+**tessera-ops** (health, metrics, webhooks, backups, alerts) и
 **tessera-services** (use-cases, бизнес-правила и продуктовая аналитика) →
 **tessera-experience** (VPN Hub, setup-guides, health-инсайты) +
 **tessera-remnawave** (внешний API) + **tessera-db** (собственное состояние:
@@ -125,6 +127,7 @@ tessera-vpn-bot
 ├── tessera-db/          # HikariCP, Flyway, repositories, DB-backed plan catalogue
 ├── tessera-remnawave/   # typed Remnawave API client + DTO
 ├── tessera-services/    # business use-cases: subscriptions, payments, referrals, support
+├── tessera-ops/         # health, metrics, payment webhooks, backups, alerts
 ├── tessera-modules/     # runtime module loader + module context bridge
 ├── tessera-telegram/    # Telegram adapter: bot router, handlers, keyboards
 ├── tessera-app/         # тонкий bootstrap (tessera-vpn-bot.jar)
@@ -234,3 +237,50 @@ reverse-proxy с TLS (например, за nginx/caddy) или огранич�
   auto-payment confirmations.
 - **Tests**: `ExperienceServiceTest` покрывает расчёт дней, usage bar, high-traffic
   warning и unlimited-трафик.
+
+## Update 5 — Tessera Ops
+
+- **Monitoring & alerts**: встроенный ops API (`OPS_ENABLED=true`) на `OPS_PORT`:
+  - `GET /health` — health report по DB, Remnawave и payment providers;
+  - `GET /metrics` — простые Prometheus-style метрики, требует `OPS_TOKEN`;
+  - при смене состояния health админы получают Telegram-alert.
+- **Payment webhooks**: `POST /webhooks/payments/{provider}` или
+  `POST /webhooks/payments/{provider}/{externalId}`. Endpoint требует
+  `PAYMENT_WEBHOOK_SECRET` (`Authorization: Bearer ...`, `X-Tessera-Webhook-Secret`
+  или `?secret=...`). Webhook не доверяет входящему статусу: он только находит invoice,
+  затем вызывает `PaymentProvider.checkInvoice(...)`.
+- **Postgres backups**: runtime Docker image теперь содержит `pg_dump`; ops API умеет
+  `POST /ops/backups/run`, а `BACKUP_SCHEDULE_HOURS` включает регулярные `.dump`
+  backups с retention через `BACKUP_RETENTION_DAYS`.
+- **RBAC для админов**: кроме старого `ADMIN_IDS` появились роли:
+  `ADMIN_SUPPORT_IDS`, `ADMIN_BILLING_IDS`, `ADMIN_OPS_IDS`,
+  `ADMIN_SUPERADMIN_IDS` и матрица `ADMIN_ROLES=111:support,billing;222:ops`.
+  `ADMIN_IDS` по-прежнему даёт полный superadmin-доступ.
+- **Anti-abuse**: in-memory rate limits для сообщений, callback’ов, создания счетов
+  и support-сообщений. Настройки: `RATE_LIMIT_MESSAGES_PER_MINUTE`,
+  `RATE_LIMIT_CALLBACKS_PER_MINUTE`, `RATE_LIMIT_INVOICES_PER_HOUR`,
+  `RATE_LIMIT_SUPPORT_PER_HOUR`.
+- **Plugin API versioning**: `BotModule.API_VERSION = 2`, runtime-модули должны
+  явно возвращать совместимую версию. Несовместимые jar пропускаются, escape hatch:
+  `MODULE_ALLOW_UNSUPPORTED_API=true`.
+
+### Ops / backup restore
+
+Ручной backup:
+
+```bash
+curl -X POST http://127.0.0.1:9090/ops/backups/run \
+  -H "Authorization: Bearer $OPS_TOKEN"
+```
+
+Restore `.dump`-файла:
+
+```bash
+pg_restore --clean --if-exists \
+  --host "$DB_HOST" --port "$DB_PORT" --username "$DB_USER" \
+  --dbname "$DB_NAME" /app/backups/tessera_YYYYMMDD_HHMMSS.dump
+```
+
+Ops port в `docker-compose.yml` привязан к `127.0.0.1`. Для публичных webhooks
+выведите только `/webhooks/payments/...` через TLS reverse proxy и оставьте
+`/metrics` / `/ops/backups/run` закрытыми.

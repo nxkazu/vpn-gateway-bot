@@ -17,6 +17,7 @@ dependencies {
     implementation(project(":tessera-experience"))
     implementation(project(":tessera-i18n"))
     implementation(project(":tessera-modules"))
+    implementation(project(":tessera-ops"))
     implementation(project(":tessera-remnawave"))
     implementation(project(":tessera-services"))
     implementation(project(":tessera-telegram"))

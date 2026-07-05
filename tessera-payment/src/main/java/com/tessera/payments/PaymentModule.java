@@ -23,6 +23,11 @@ public final class PaymentModule implements BotModule {
     }
 
     @Override
+    public int apiVersion() {
+        return API_VERSION;
+    }
+
+    @Override
     public void init(ModuleContext ctx) throws Exception {
         Path cfgDir = ctx.configDirectory();
         Files.createDirectories(cfgDir);

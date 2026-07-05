@@ -49,6 +49,11 @@ public final class ModuleLoader implements AutoCloseable {
             classLoaders.add(cl);
             int found = 0;
             for (BotModule module : ServiceLoader.load(BotModule.class, cl)) {
+                if (!isCompatible(module, context)) {
+                    log.error("Skipping module '{}' from {}: API version {} is incompatible with host API {}",
+                            module.id(), jar.getFileName(), module.apiVersion(), BotModule.API_VERSION);
+                    continue;
+                }
                 module.init(context);
                 modules.add(module);
                 found++;
@@ -60,6 +65,13 @@ public final class ModuleLoader implements AutoCloseable {
         } catch (Exception e) {
             log.error("Failed to load module jar {}", jar, e);
         }
+    }
+
+    private boolean isCompatible(BotModule module, ModuleContext context) {
+        if (module.apiVersion() == BotModule.API_VERSION) {
+            return true;
+        }
+        return Boolean.parseBoolean(context.env("MODULE_ALLOW_UNSUPPORTED_API", "false"));
     }
 
     public List<BotModule> modules() {

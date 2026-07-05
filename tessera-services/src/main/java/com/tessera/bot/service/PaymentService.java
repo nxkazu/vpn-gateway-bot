@@ -1,5 +1,7 @@
 package com.tessera.bot.service;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.tessera.bot.config.AppConfig;
 import com.tessera.bot.db.InvoiceRepository;
 import com.tessera.bot.db.Plans;
@@ -27,6 +29,8 @@ import java.util.Optional;
 public class PaymentService {
 
     public record CreateResult(long invoiceId, String payUrl, Plans.Plan plan, long priceRub) {}
+    public record WebhookResult(boolean accepted, String provider, String externalId,
+                                PaymentInvoice invoice, CheckOutcome outcome) {}
 
     public sealed interface CheckOutcome {
         record Paid(RemnawaveUser user, Plans.Plan plan) implements CheckOutcome {}
@@ -41,6 +45,7 @@ public class PaymentService {
     private final ReferralService referrals;
     private final PromoService promos;
     private final AnalyticsService analytics;
+    private final ObjectMapper json = new ObjectMapper();
 
     public PaymentService(AppConfig config, InvoiceRepository invoices,
                           SubscriptionService subscriptions, ReferralService referrals,
@@ -183,5 +188,59 @@ public class PaymentService {
                 return new CheckOutcome.Failed();
             }
         }
+    }
+
+    /**
+     * Handles a provider webhook by resolving the external invoice id, then using the
+     * normal provider status check. The webhook payload itself is never trusted as proof
+     * of payment.
+     */
+    public WebhookResult handleWebhook(String providerId, String explicitExternalId, String body) throws Exception {
+        String externalId = explicitExternalId == null || explicitExternalId.isBlank()
+                ? extractExternalId(body)
+                : explicitExternalId.trim();
+        if (providerId == null || providerId.isBlank() || externalId == null || externalId.isBlank()) {
+            return new WebhookResult(false, providerId, externalId, null, new CheckOutcome.Failed());
+        }
+        Optional<PaymentInvoice> invoice = invoices.findByProviderExternal(providerId, externalId);
+        if (invoice.isEmpty()) {
+            return new WebhookResult(false, providerId, externalId, null, new CheckOutcome.Failed());
+        }
+        PaymentInvoice inv = invoice.get();
+        CheckOutcome outcome = checkAndActivate(inv.telegramId(), inv.id());
+        return new WebhookResult(true, providerId, externalId, inv, outcome);
+    }
+
+    private String extractExternalId(String body) {
+        if (body == null || body.isBlank()) return null;
+        try {
+            JsonNode root = json.readTree(body);
+            return findText(root, "transactionId", "invoice_id", "invoiceId", "external_id", "externalId", "id");
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private String findText(JsonNode node, String... keys) {
+        if (node == null || node.isNull()) return null;
+        if (node.isObject()) {
+            for (String key : keys) {
+                JsonNode value = node.get(key);
+                if (value != null && !value.isNull()) {
+                    String text = value.asText("");
+                    if (!text.isBlank()) return text;
+                }
+            }
+            for (Map.Entry<String, JsonNode> entry : node.properties()) {
+                String found = findText(entry.getValue(), keys);
+                if (found != null && !found.isBlank()) return found;
+            }
+        } else if (node.isArray()) {
+            for (JsonNode child : node) {
+                String found = findText(child, keys);
+                if (found != null && !found.isBlank()) return found;
+            }
+        }
+        return null;
     }
 }

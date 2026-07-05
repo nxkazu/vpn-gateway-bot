@@ -60,6 +60,19 @@ public class InvoiceRepository {
         }
     }
 
+    public Optional<PaymentInvoice> findByProviderExternal(String provider, String externalId) {
+        String sql = "SELECT * FROM payment_invoices WHERE provider = ? AND external_id = ?";
+        try (Connection c = ds.getConnection(); PreparedStatement ps = c.prepareStatement(sql)) {
+            ps.setString(1, provider);
+            ps.setString(2, externalId);
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next() ? Optional.of(map(rs)) : Optional.empty();
+            }
+        } catch (SQLException e) {
+            throw new RuntimeException("findByProviderExternal failed", e);
+        }
+    }
+
     /** PENDING invoices younger than {@code maxAgeHours}, oldest first (for the background watcher). */
     public List<PaymentInvoice> findPending(int maxAgeHours) {
         String sql = """

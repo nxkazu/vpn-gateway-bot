@@ -1,6 +1,7 @@
 package com.tessera.bot.bot;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.tessera.bot.config.AdminRole;
 import com.tessera.bot.config.AppConfig;
 import com.tessera.bot.db.AuditRepository;
 import com.tessera.bot.db.UserRepository;
@@ -46,6 +47,14 @@ public class AdminHandler {
 
     public boolean isAdmin(long telegramId) {
         return config.isAdmin(telegramId);
+    }
+
+    public boolean can(long telegramId, AdminRole role) {
+        return config.hasRole(telegramId, role);
+    }
+
+    public Reply denied(Lang lang) {
+        return Reply.of(m.t(lang, "admin.rbac.denied"), Keyboards.backTo(m, lang, Callbacks.ADMIN_MAIN));
     }
 
     public Reply menu(Lang lang) {
