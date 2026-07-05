@@ -19,8 +19,10 @@ docker compose up -d --build
 - `.editorconfig` defines indentation and line endings; keep it green.
 - 4-space indentation for Java, 120-char soft line limit.
 - Prefer Lombok (`@Slf4j`, `@RequiredArgsConstructor`, `@Getter`, `@Builder`) over hand-written boilerplate.
-- Keep the layering intact: `tessera-telegram -> tessera-services -> {tessera-remnawave, tessera-db}`.
-  The Telegram layer must not talk to the Remnawave API or JDBC directly.
+- Keep the layering intact:
+  `tessera-telegram -> tessera-services/tessera-experience -> {tessera-remnawave, tessera-db}`.
+  The Telegram layer must not talk to the Remnawave API or JDBC directly, and product
+  calculations such as subscription health or setup guides belong in `tessera-experience`.
 
 ## Internationalization (i18n)
 

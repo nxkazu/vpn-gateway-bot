@@ -12,6 +12,7 @@ dependencies {
     api(project(":tessera-common"))
     api(project(":tessera-config"))
     api(project(":tessera-db"))
+    api(project(":tessera-experience"))
     api(project(":tessera-i18n"))
     api(project(":tessera-remnawave"))
     api(project(":tessera-services"))

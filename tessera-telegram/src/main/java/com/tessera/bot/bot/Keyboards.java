@@ -3,6 +3,7 @@ package com.tessera.bot.bot;
 import com.tessera.i18n.Lang;
 import com.tessera.i18n.Messages;
 import com.tessera.bot.db.Plans;
+import com.tessera.experience.DevicePlatform;
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.InlineKeyboardMarkup;
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.InlineKeyboardButton;
 
@@ -19,10 +20,11 @@ public final class Keyboards {
         List<List<InlineKeyboardButton>> rows = new ArrayList<>();
         rows.add(List.of(btn(m.t(lang, "btn.buy"), Callbacks.MENU_BUY)));
         if (hasSubscription) {
-            rows.add(List.of(btn(m.t(lang, "btn.sub"), Callbacks.MENU_SUB)));
+            rows.add(List.of(btn(m.t(lang, "btn.vpn_hub"), Callbacks.MENU_SUB)));
         } else if (trialAvailable) {
             rows.add(List.of(btn(m.t(lang, "btn.trial"), Callbacks.MENU_TRIAL)));
         }
+        rows.add(List.of(btn(m.t(lang, "btn.setup"), Callbacks.MENU_SETUP)));
         rows.add(List.of(btn(m.t(lang, "btn.referral"), Callbacks.MENU_REFERRAL)));
         rows.add(List.of(btn(m.t(lang, "btn.support"), Callbacks.MENU_SUPPORT)));
         rows.add(List.of(
@@ -68,7 +70,33 @@ public final class Keyboards {
                     .text(m.t(lang, "btn.open_sub")).url(subscriptionUrl).build()));
         }
         rows.add(List.of(btn(m.t(lang, "btn.extend"), Callbacks.MENU_BUY)));
+        rows.add(List.of(btn(m.t(lang, "btn.setup"), Callbacks.MENU_SETUP)));
         rows.add(List.of(btn(m.t(lang, "btn.back"), Callbacks.MENU_MAIN)));
+        return InlineKeyboardMarkup.builder().keyboard(rows).build();
+    }
+
+    public static InlineKeyboardMarkup setupPlatforms(Messages m, Lang lang) {
+        List<List<InlineKeyboardButton>> rows = new ArrayList<>();
+        List<InlineKeyboardButton> row = new ArrayList<>();
+        for (DevicePlatform platform : DevicePlatform.values()) {
+            row.add(btn(m.t(lang, platform.titleKey()), Callbacks.SETUP_PREFIX + platform.code()));
+            if (row.size() == 2) {
+                rows.add(new ArrayList<>(row));
+                row.clear();
+            }
+        }
+        if (!row.isEmpty()) rows.add(row);
+        rows.add(List.of(btn(m.t(lang, "btn.back"), Callbacks.MENU_MAIN)));
+        return InlineKeyboardMarkup.builder().keyboard(rows).build();
+    }
+
+    public static InlineKeyboardMarkup setupGuide(Messages m, Lang lang, String subscriptionUrl) {
+        List<List<InlineKeyboardButton>> rows = new ArrayList<>();
+        if (subscriptionUrl != null && !subscriptionUrl.isBlank()) {
+            rows.add(List.of(InlineKeyboardButton.builder()
+                    .text(m.t(lang, "btn.open_sub")).url(subscriptionUrl).build()));
+        }
+        rows.add(List.of(btn(m.t(lang, "btn.back"), Callbacks.MENU_SETUP)));
         return InlineKeyboardMarkup.builder().keyboard(rows).build();
     }
 

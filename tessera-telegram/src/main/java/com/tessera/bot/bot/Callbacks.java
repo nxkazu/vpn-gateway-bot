@@ -9,6 +9,7 @@ public final class Callbacks {
     public static final String MENU_BUY = "menu:buy";
     public static final String MENU_SUB = "menu:sub";
     public static final String MENU_TRIAL = "menu:trial";
+    public static final String MENU_SETUP = "menu:setup";
     public static final String MENU_REFERRAL = "menu:referral";
     public static final String MENU_HELP = "menu:help";
     public static final String MENU_LANGUAGE = "menu:lang";
@@ -16,6 +17,7 @@ public final class Callbacks {
 
     public static final String BUY_PREFIX = "buy:";     // buy:<planCode>
     public static final String LANG_PREFIX = "lang:";   // lang:<code>
+    public static final String SETUP_PREFIX = "setup:"; // setup:<platform>
 
     // Payments
     public static final String PAY_PREFIX = "pay:";           // pay:<providerId>:<planCode>

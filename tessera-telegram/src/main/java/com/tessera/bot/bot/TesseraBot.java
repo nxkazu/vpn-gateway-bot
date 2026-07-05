@@ -8,10 +8,12 @@ import com.tessera.bot.i18n.LocaleService;
 import com.tessera.i18n.Messages;
 import com.tessera.bot.remnawave.RemnawaveClient;
 import com.tessera.bot.service.PaymentService;
+import com.tessera.bot.service.AnalyticsService;
 import com.tessera.bot.service.PromoService;
 import com.tessera.bot.service.ReferralService;
 import com.tessera.bot.service.SubscriptionService;
 import com.tessera.bot.service.SupportService;
+import com.tessera.experience.ExperienceService;
 import lombok.extern.slf4j.Slf4j;
 import org.telegram.telegrambots.bots.TelegramLongPollingBot;
 import org.telegram.telegrambots.meta.api.methods.AnswerCallbackQuery;
@@ -45,13 +47,14 @@ public class TesseraBot extends TelegramLongPollingBot {
     public TesseraBot(AppConfig config, RemnawaveClient panel, UserRepository users, AuditRepository audit,
                       SubscriptionService subscriptions, ReferralService referrals,
                       PaymentService payments, SupportService support, PromoService promos,
-                      LocaleService locales, Messages messages) {
+                      LocaleService locales, Messages messages,
+                      ExperienceService experience, AnalyticsService analytics) {
         super(config.botToken());
         this.config = config;
         this.users = users;
         this.locales = locales;
         this.userHandler = new UserHandler(config, users, subscriptions, referrals,
-                payments, support, promos, locales, messages);
+                payments, support, promos, locales, messages, experience, analytics);
         this.adminHandler = new AdminHandler(config, panel, users, subscriptions, audit, messages);
     }
 
@@ -234,6 +237,7 @@ public class TesseraBot extends TelegramLongPollingBot {
             }
             case Callbacks.MENU_SUB -> { return userHandler.mySubscription(userId); }
             case Callbacks.MENU_TRIAL -> { return userHandler.trial(userId); }
+            case Callbacks.MENU_SETUP -> { return userHandler.setupMenu(userId); }
             case Callbacks.MENU_REFERRAL -> { return userHandler.referral(userId); }
             case Callbacks.MENU_HELP -> { return userHandler.help(userId); }
             case Callbacks.MENU_LANGUAGE -> { return userHandler.languageMenu(userId); }
@@ -271,6 +275,9 @@ public class TesseraBot extends TelegramLongPollingBot {
         }
         if (data.startsWith(Callbacks.LANG_PREFIX)) {
             return userHandler.setLanguage(userId, data.substring(Callbacks.LANG_PREFIX.length()));
+        }
+        if (data.startsWith(Callbacks.SETUP_PREFIX)) {
+            return userHandler.setupGuide(userId, data.substring(Callbacks.SETUP_PREFIX.length()));
         }
 
         if (data.startsWith("admin:")) {

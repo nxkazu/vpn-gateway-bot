@@ -45,6 +45,10 @@ th{color:var(--muted);font-weight:500;font-size:12px}
 .stat{background:var(--card);border:1px solid #262c3d;border-radius:12px;padding:14px;display:flex;flex-direction:column}
 .stat b{font-size:22px}
 .stat span{font-size:12px}
+.pulse{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin-bottom:16px}
+.pulse .step{background:var(--card);border:1px solid #262c3d;border-radius:12px;padding:12px}
+.pulse .step b{display:block;font-size:20px}
+.pulse .step span{font-size:12px}
 .muted{color:var(--muted)}
 .bars{display:flex;align-items:flex-end;gap:3px;height:120px;margin-top:8px}
 .bars .b{flex:1;background:var(--acc);border-radius:3px 3px 0 0;min-height:2px;position:relative}
@@ -136,6 +140,11 @@ h3{margin-bottom:8px}
 
 <section id="tab-stats" hidden>
   <div class="stats" id="statGrid"></div>
+  <div class="card" style="margin-bottom:16px">
+    <h3>🫀 Tessera Pulse</h3>
+    <div id="pulseGrid" class="pulse"></div>
+    <table id="eventTable"><thead><tr><th>Событие</th><th>Кол-во за 30 дн</th></tr></thead><tbody></tbody></table>
+  </div>
   <div class="grid" style="grid-template-columns:1fr 1fr">
     <div class="card">
       <h3>💰 Выручка по дням (30 дн), ₽</h3>
@@ -169,7 +178,7 @@ function show(tab){
     document.getElementById('tab-'+t).hidden = t!==tab;
     document.getElementById('nav-'+t).classList.toggle('active', t===tab);
   }
-  if (tab==='stats'){ loadStats(); loadCharts(); }
+  if (tab==='stats'){ loadStats(); loadPulse(); loadCharts(); }
   if (tab==='plans') loadPlans();
   if (tab==='promos') loadPromos();
   if (tab==='tickets') loadTickets();
@@ -287,8 +296,20 @@ async function loadStats(){
   try{
     const s = await api('/api/stats');
     const items = [['👥 Пользователей',s.users],['🎫 Открытых тикетов',s.openTickets],
-                   ['💳 Оплат за 30 дн',s.paidInvoices30d],['💰 Выручка 30 дн, ₽',s.revenueRub30d]];
+                   ['💳 Оплат за 30 дн',s.paidInvoices30d],['💰 Выручка 30 дн, ₽',s.revenueRub30d],
+                   ['🫀 Событий Pulse',s.events30d]];
     document.getElementById('statGrid').innerHTML = items.map(([k,v])=>`<div class="stat"><b>${v}</b><span class="muted">${k}</span></div>`).join('');
+  }catch(e){/* noop */}
+}
+async function loadPulse(){
+  if(!TOKEN) return;
+  try{
+    const p = await api('/api/pulse?days=30');
+    document.getElementById('pulseGrid').innerHTML = (p.funnel||[]).map(x=>`
+      <div class="step"><b>${x.amount}</b><span class="muted">${esc(x.label)}</span></div>`).join('');
+    document.querySelector('#eventTable tbody').innerHTML = (p.topEvents||[]).map(x=>`
+      <tr><td>${esc(x.event_type)}</td><td>${x.amount}</td></tr>`).join('') ||
+      '<tr><td colspan="2" class="muted">Пока нет событий</td></tr>';
   }catch(e){/* noop */}
 }
 function renderBars(el, series){
@@ -306,7 +327,7 @@ async function loadCharts(){
     renderBars(document.getElementById('chartUsers'), ts.users||[]);
   }catch(e){/* noop */}
 }
-function refreshAll(){ loadTickets(); loadPlans(); loadPromos(); loadStats(); loadCharts(); }
+function refreshAll(){ loadTickets(); loadPlans(); loadPromos(); loadStats(); loadPulse(); loadCharts(); }
 setInterval(()=>{ if(!document.getElementById('tab-tickets').hidden) { loadTickets(); if(CURRENT) openTicket(CURRENT); } }, 5000);
 refreshAll();
 </script>

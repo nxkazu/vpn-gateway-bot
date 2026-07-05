@@ -40,15 +40,23 @@ public class PaymentService {
     private final SubscriptionService subscriptions;
     private final ReferralService referrals;
     private final PromoService promos;
+    private final AnalyticsService analytics;
 
     public PaymentService(AppConfig config, InvoiceRepository invoices,
                           SubscriptionService subscriptions, ReferralService referrals,
                           PromoService promos) {
+        this(config, invoices, subscriptions, referrals, promos, null);
+    }
+
+    public PaymentService(AppConfig config, InvoiceRepository invoices,
+                          SubscriptionService subscriptions, ReferralService referrals,
+                          PromoService promos, AnalyticsService analytics) {
         this.config = config;
         this.invoices = invoices;
         this.subscriptions = subscriptions;
         this.referrals = referrals;
         this.promos = promos;
+        this.analytics = analytics;
     }
 
     /** Called by payment modules (via ModuleContext) during startup. */
@@ -98,6 +106,10 @@ public class PaymentService {
                 created.externalId(), created.payUrl(), amountMinor, "RUB", appliedPromo);
         log.info("Invoice {} created: user={} plan={} provider={} ext={} promo={}",
                 id, telegramId, plan.code(), provider.id(), created.externalId(), appliedPromo);
+        if (analytics != null) {
+            analytics.track(telegramId, AnalyticsService.Event.INVOICE_CREATED,
+                    Map.of("plan", plan.code(), "provider", provider.id(), "priceRub", priceRub));
+        }
         return new CreateResult(id, created.payUrl(), plan, priceRub);
     }
 
@@ -151,6 +163,10 @@ public class PaymentService {
                     }
                     referrals.rewardOnActivation(telegramId).ifPresent(refId ->
                             log.info("Referral reward granted to {} for paid activation by {}", refId, telegramId));
+                    if (analytics != null) {
+                        analytics.track(telegramId, AnalyticsService.Event.PAYMENT_CONFIRMED,
+                                Map.of("plan", plan.code(), "provider", inv.provider(), "invoice", invoiceId));
+                    }
                     log.info("Invoice {} PAID; plan {} activated for {}", invoiceId, plan.code(), telegramId);
                     return new CheckOutcome.Paid(user, plan);
                 } catch (Exception e) {

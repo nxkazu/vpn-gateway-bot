@@ -11,6 +11,7 @@ import com.tessera.bot.db.PromoRepository;
 import com.tessera.bot.db.ReferralRepository;
 import com.tessera.bot.db.TicketRepository;
 import com.tessera.bot.db.UserRepository;
+import com.tessera.bot.db.UserEventRepository;
 import com.tessera.bot.i18n.LocaleService;
 import com.tessera.i18n.Messages;
 import com.tessera.bot.module.AppModuleContext;
@@ -18,6 +19,7 @@ import com.tessera.bot.module.ModuleLoader;
 import com.tessera.bot.module.NotifierHolder;
 import com.tessera.bot.remnawave.RemnawaveClient;
 import com.tessera.bot.service.ExpiryNotifier;
+import com.tessera.bot.service.AnalyticsService;
 import com.tessera.bot.service.PaymentService;
 import com.tessera.bot.service.PaymentWatcher;
 import com.tessera.bot.db.Plans;
@@ -25,6 +27,7 @@ import com.tessera.bot.service.PromoService;
 import com.tessera.bot.service.ReferralService;
 import com.tessera.bot.service.SubscriptionService;
 import com.tessera.bot.service.SupportService;
+import com.tessera.experience.ExperienceService;
 import lombok.extern.slf4j.Slf4j;
 import org.telegram.telegrambots.meta.TelegramBotsApi;
 import org.telegram.telegrambots.updatesreceivers.DefaultBotSession;
@@ -58,11 +61,14 @@ public final class TesseraBotApplication {
         TicketRepository ticketRepo = new TicketRepository(database.dataSource());
         PromoRepository promoRepo = new PromoRepository(database.dataSource());
         NoticeRepository noticeRepo = new NoticeRepository(database.dataSource());
+        UserEventRepository eventRepo = new UserEventRepository(database.dataSource());
 
         Plans.init(planRepo);
 
         Messages messages = new Messages();
         LocaleService locales = new LocaleService(userRepo);
+        AnalyticsService analytics = new AnalyticsService(eventRepo);
+        ExperienceService experience = new ExperienceService();
 
         NotifierHolder notifier = new NotifierHolder();
 
@@ -70,7 +76,7 @@ public final class TesseraBotApplication {
         SubscriptionService subscriptions = new SubscriptionService(config, panel, userRepo);
         ReferralService referrals = new ReferralService(config, referralRepo, panel, subscriptions);
         PromoService promos = new PromoService(promoRepo);
-        PaymentService payments = new PaymentService(config, invoiceRepo, subscriptions, referrals, promos);
+        PaymentService payments = new PaymentService(config, invoiceRepo, subscriptions, referrals, promos, analytics);
         SupportService support = new SupportService(ticketRepo, config.adminIds(), notifier);
 
         Path modulesDir = Path.of(env("MODULES_DIR", "modules"));
@@ -80,7 +86,7 @@ public final class TesseraBotApplication {
                 new AppModuleContext(modulesConfigDir, payments, database.dataSource(), notifier));
 
         TesseraBot bot = new TesseraBot(config, panel, userRepo, auditRepo,
-                subscriptions, referrals, payments, support, promos, locales, messages);
+                subscriptions, referrals, payments, support, promos, locales, messages, experience, analytics);
 
         TelegramBotsApi botsApi = new TelegramBotsApi(DefaultBotSession.class);
         botsApi.registerBot(bot);

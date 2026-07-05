@@ -183,6 +183,10 @@ final class DashboardServer {
                 sendJson(ex, 200, Map.of("ok", true));
             }
             case "/api/stats" -> sendJson(ex, 200, dao.stats());
+            case "/api/pulse" -> {
+                int days = Integer.parseInt(q.getOrDefault("days", "30"));
+                sendJson(ex, 200, dao.pulse(Math.max(1, Math.min(days, 365))));
+            }
             case "/api/timeseries" -> {
                 Map<String, Object> out = new HashMap<>();
                 out.put("revenue", dao.revenueByDay(30));

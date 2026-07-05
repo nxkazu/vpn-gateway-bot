@@ -8,16 +8,20 @@ import com.tessera.i18n.Messages;
 import com.tessera.bot.remnawave.dto.RemnawaveUser;
 import com.tessera.bot.service.PaymentService;
 import com.tessera.bot.db.Plans;
+import com.tessera.bot.service.AnalyticsService;
 import com.tessera.bot.service.PromoService;
 import com.tessera.bot.service.ReferralService;
 import com.tessera.bot.service.SubscriptionService;
 import com.tessera.bot.service.SupportService;
 import com.tessera.bot.util.Formatting;
+import com.tessera.experience.DevicePlatform;
+import com.tessera.experience.ExperienceService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.InlineKeyboardMarkup;
 
 import java.util.Optional;
+import java.util.Map;
 
 /** Handles all non-admin user interactions. Returns localized {@link Reply} objects. */
 @Slf4j
@@ -33,6 +37,8 @@ public class UserHandler {
     private final PromoService promos;
     private final LocaleService locales;
     private final Messages m;
+    private final ExperienceService experience;
+    private final AnalyticsService analytics;
 
     private Lang lang(long telegramId) {
         return locales.forUser(telegramId);
@@ -40,6 +46,8 @@ public class UserHandler {
 
     public Reply start(long telegramId, String username, String firstName, String langCode, String payload) {
         users.upsert(telegramId, username, firstName, langCode);
+        analytics.track(telegramId, AnalyticsService.Event.START,
+                Map.of("payload", payload == null ? "" : payload));
         referrals.parseReferrerFromPayload(payload, telegramId)
                 .ifPresent(refId -> {
                     users.upsert(refId, null, null, null); // ensure FK target exists
@@ -50,6 +58,7 @@ public class UserHandler {
     }
 
     public Reply mainMenuReply(long telegramId) {
+        analytics.track(telegramId, AnalyticsService.Event.MENU_OPENED);
         Lang lang = lang(telegramId);
         return Reply.of(m.t(lang, "menu.main"), mainMenu(telegramId, lang));
     }
@@ -63,24 +72,34 @@ public class UserHandler {
     }
 
     public Reply buyMenu(long telegramId) {
+        analytics.track(telegramId, AnalyticsService.Event.BUY_OPENED);
         Lang lang = lang(telegramId);
         return Reply.of(m.t(lang, "buy.choose"), Keyboards.plans(m, lang));
     }
 
     public Reply mySubscription(long telegramId) {
+        analytics.track(telegramId, AnalyticsService.Event.VPN_HUB_OPENED);
         Lang lang = lang(telegramId);
         Optional<RemnawaveUser> sub = subscriptions.currentSubscription(telegramId);
         if (sub.isEmpty()) {
             return Reply.of(m.t(lang, "sub.none"), Keyboards.backTo(m, lang, Callbacks.MENU_MAIN));
         }
         RemnawaveUser u = sub.get();
+        ExperienceService.SubscriptionInsight insight = experience.insight(u);
         long used = u.userTraffic != null ? u.userTraffic.usedTrafficBytes : 0L;
         String limit = (u.trafficLimitBytes == null || u.trafficLimitBytes == 0)
                 ? m.t(lang, "traffic.unlimited") : Formatting.bytes(u.trafficLimitBytes);
-        String text = m.t(lang, "sub.card",
+        String trafficLine = insight.unlimitedTraffic()
+                ? m.t(lang, "sub.traffic.unlimited", Formatting.bytes(used))
+                : m.t(lang, "sub.traffic.limited",
+                        Formatting.bytes(used), limit, Formatting.bytes(insight.remainingBytes()),
+                        insight.usagePercent(), insight.usageBar());
+        String text = m.t(lang, "sub.card.v2",
                 Formatting.status(m, lang, u.status),
                 Formatting.dateTime(u.expireAt),
-                Formatting.bytes(used), limit);
+                insight.daysLeft(),
+                trafficLine,
+                m.t(lang, insight.advice().messageKey()));
         return Reply.of(text, Keyboards.subscriptionActions(m, lang, u.subscriptionUrl));
     }
 
@@ -91,6 +110,7 @@ public class UserHandler {
             return Reply.of(m.t(lang, "trial.unavailable"), Keyboards.backTo(m, lang, Callbacks.MENU_MAIN));
         }
         RemnawaveUser u = created.get();
+        analytics.track(telegramId, AnalyticsService.Event.TRIAL_ACTIVATED);
         return Reply.of(m.t(lang, "trial.activated", Formatting.dateTime(u.expireAt)),
                 Keyboards.subscriptionActions(m, lang, u.subscriptionUrl));
     }
@@ -101,6 +121,7 @@ public class UserHandler {
      * activated directly (legacy/dev behaviour).
      */
     public Reply buyPlan(long telegramId, String planCode) {
+        analytics.track(telegramId, AnalyticsService.Event.PLAN_SELECTED, Map.of("plan", planCode));
         Lang lang = lang(telegramId);
         Plans.Plan plan = Plans.byCode(planCode);
         if (plan == null) {
@@ -222,11 +243,14 @@ public class UserHandler {
         Lang lang = lang(telegramId);
         SupportService.Submitted s = support.submitUserMessage(
                 telegramId, username, text, attachmentFileId, attachmentName);
+        analytics.track(telegramId, AnalyticsService.Event.SUPPORT_CREATED,
+                Map.of("ticket", s.ticketId()));
         return Reply.of(m.t(lang, "support.sent", s.ticketId()),
                 Keyboards.backTo(m, lang, Callbacks.MENU_MAIN));
     }
 
     public Reply referral(long telegramId) {
+        analytics.track(telegramId, AnalyticsService.Event.REFERRAL_OPENED);
         Lang lang = lang(telegramId);
         String link = referrals.buildReferralLink(telegramId);
         long invited = referrals.countReferrals(telegramId);
@@ -239,6 +263,29 @@ public class UserHandler {
     public Reply help(long telegramId) {
         Lang lang = lang(telegramId);
         return Reply.of(m.t(lang, "help"), Keyboards.backTo(m, lang, Callbacks.MENU_MAIN));
+    }
+
+    public Reply setupMenu(long telegramId) {
+        analytics.track(telegramId, AnalyticsService.Event.SETUP_OPENED);
+        Lang lang = lang(telegramId);
+        boolean hasSub = subscriptions.currentSubscription(telegramId).isPresent();
+        return Reply.of(m.t(lang, hasSub ? "setup.menu" : "setup.menu.no_sub"),
+                Keyboards.setupPlatforms(m, lang));
+    }
+
+    public Reply setupGuide(long telegramId, String platformCode) {
+        DevicePlatform platform = DevicePlatform.fromCode(platformCode);
+        analytics.track(telegramId, AnalyticsService.Event.SETUP_GUIDE_OPENED,
+                Map.of("platform", platform.code()));
+        Lang lang = lang(telegramId);
+        String subscriptionUrl = subscriptions.currentSubscription(telegramId)
+                .map(u -> u.subscriptionUrl)
+                .filter(url -> url != null && !url.isBlank())
+                .orElse(null);
+        String text = m.t(lang, "setup.guide.title", m.t(lang, platform.titleKey()))
+                + "\n\n" + m.t(lang, platform.guideKey())
+                + "\n\n" + m.t(lang, subscriptionUrl == null ? "setup.no_subscription" : "setup.open_hint");
+        return Reply.of(text, Keyboards.setupGuide(m, lang, subscriptionUrl));
     }
 
     public Reply languageMenu(long telegramId) {

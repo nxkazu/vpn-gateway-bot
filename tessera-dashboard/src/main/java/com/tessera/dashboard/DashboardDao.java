@@ -202,7 +202,69 @@ final class DashboardDao {
                 "SELECT COUNT(*) FROM payment_invoices WHERE status = 'PAID' AND created_at > now() - interval '30 days'"));
         out.put("revenueRub30d", scalarLong(
                 "SELECT COALESCE(SUM(amount_cents), 0) / 100 FROM payment_invoices WHERE status = 'PAID' AND created_at > now() - interval '30 days'"));
+        out.put("events30d", scalarLong(
+                "SELECT COUNT(*) FROM user_events WHERE created_at > now() - interval '30 days'"));
         return out;
+    }
+
+    Map<String, Object> pulse(int days) {
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("days", days);
+        out.put("funnel", List.of(
+                pulseRow("Starts", "start", days),
+                pulseRow("VPN Hub", "vpn_hub_opened", days),
+                pulseRow("Setup", "setup_opened", days),
+                pulseRow("Plan selected", "plan_selected", days),
+                pulseRow("Invoices", "invoice_created", days),
+                pulseRow("Paid", "payment_confirmed", days),
+                pulseRow("Support", "support_created", days)
+        ));
+        out.put("topEvents", topEvents(days, 12));
+        return out;
+    }
+
+    private Map<String, Object> pulseRow(String label, String eventType, int days) {
+        Map<String, Object> row = new LinkedHashMap<>();
+        row.put("label", label);
+        row.put("event", eventType);
+        row.put("amount", countEvent(eventType, days));
+        return row;
+    }
+
+    private long countEvent(String eventType, int days) {
+        String sql = """
+                SELECT COUNT(*) FROM user_events
+                WHERE event_type = ? AND created_at > now() - make_interval(days => ?)
+                """;
+        try (Connection c = ds.getConnection(); PreparedStatement ps = c.prepareStatement(sql)) {
+            ps.setString(1, eventType);
+            ps.setInt(2, days);
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next() ? rs.getLong(1) : 0L;
+            }
+        } catch (SQLException e) {
+            return 0L;
+        }
+    }
+
+    private List<Map<String, Object>> topEvents(int days, int limit) {
+        String sql = """
+                SELECT event_type, COUNT(*) AS amount
+                FROM user_events
+                WHERE created_at > now() - make_interval(days => ?)
+                GROUP BY event_type
+                ORDER BY amount DESC, event_type
+                LIMIT ?
+                """;
+        try (Connection c = ds.getConnection(); PreparedStatement ps = c.prepareStatement(sql)) {
+            ps.setInt(1, days);
+            ps.setInt(2, limit);
+            try (ResultSet rs = ps.executeQuery()) {
+                return rows(rs);
+            }
+        } catch (SQLException e) {
+            return List.of();
+        }
     }
 
     /** Daily revenue (rubles) from the payments ledger over the trailing window. */

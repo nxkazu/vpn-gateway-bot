@@ -10,7 +10,8 @@
 ### Для пользователей
 - 🎁 Пробный период (настраиваемый) для новых пользователей
 - 🛒 Покупка и продление тарифов
-- 📱 Просмотр статуса подписки, срока действия и трафика
+- 🛡 VPN Hub: статус подписки, срок, трафик, остаток, health-рекомендации
+- 🧭 Гайды по настройке для iOS, Android, Windows, macOS и Android TV
 - 🔗 Прямая ссылка на конфигурацию подписки
 - 👥 Реферальная программа с бонусными днями за приглашённых друзей
 - 🌐 Мультиязычный интерфейс: выбор языка в меню и при первом `/start`
@@ -37,8 +38,9 @@
 
 ```
 tessera-telegram  ─┐
-                   ├─> tessera-services ─┬─> tessera-remnawave
+                   ├─> tessera-services ─┬─> tessera-experience
 tessera-modules   ─┘                     ├─> tessera-db
+                                         ├─> tessera-remnawave
                                          ├─> tessera-core
                                          └─> tessera-common/i18n
 
@@ -47,10 +49,11 @@ tessera-payment and tessera-dashboard are runtime plugin JARs loaded from module
 ```
 
 Слои разделены по ответственности: **tessera-telegram** (I/O Telegram) →
-**tessera-services** (use-cases и бизнес-правила) → **tessera-remnawave**
-(внешний API) + **tessera-db** (собственное состояние: рефералы, привязки,
-платежи, тарифы). VPN-аккаунт «источника истины» живёт в панели Remnawave;
-локальная БД хранит только то, чего в панели нет.
+**tessera-services** (use-cases, бизнес-правила и продуктовая аналитика) →
+**tessera-experience** (VPN Hub, setup-guides, health-инсайты) +
+**tessera-remnawave** (внешний API) + **tessera-db** (собственное состояние:
+рефералы, привязки, платежи, тарифы, Pulse-события). VPN-аккаунт «источника
+истины» живёт в панели Remnawave; локальная БД хранит только то, чего в панели нет.
 
 ## Быстрый старт (Docker)
 
@@ -118,6 +121,7 @@ tessera-vpn-bot
 ├── tessera-config/      # env-конфигурация приложения
 ├── tessera-i18n/        # Lang, Messages и i18n resource bundles
 ├── tessera-common/      # shared presentation helpers
+├── tessera-experience/  # VPN Hub insights, traffic health, setup guides
 ├── tessera-db/          # HikariCP, Flyway, repositories, DB-backed plan catalogue
 ├── tessera-remnawave/   # typed Remnawave API client + DTO
 ├── tessera-services/    # business use-cases: subscriptions, payments, referrals, support
@@ -172,6 +176,8 @@ Gradle-зависимости, а внешняя расширяемость ос
   засеяны автоматически). В дашборде можно создавать/менять/выключать тарифы —
   бот подхватывает изменения сразу, без рестарта.
 - **Статистика**: пользователи, открытые тикеты, оплаты и выручка за 30 дней.
+- **Tessera Pulse**: продуктовая воронка и события за 30 дней: старты, VPN Hub,
+  setup-гайды, выбор тарифов, счета, оплаты и обращения в поддержку.
 
 ⚠️ Дашборд защищён только bearer-токеном — не публикуйте порт в интернет без
 reverse-proxy с TLS (например, за nginx/caddy) или ограничьте доступ фаерволом.
@@ -207,3 +213,24 @@ reverse-proxy с TLS (например, за nginx/caddy) или огранич�
 > ⚠️ Security note: the dashboard file proxy accepts the access token as a `t=` query
 > parameter for embedding attachment images. Keep the dashboard behind a reverse proxy
 > with TLS and restrict access at the network level.
+
+## Update 4 — Tessera Experience & Pulse
+
+- **VPN Hub**: карточка подписки стала продуктовым центром: статус, срок, дни до
+  окончания, использованный/оставшийся трафик, usage bar и рекомендация
+  (всё хорошо, пора продлить, трафик почти закончился).
+- **Setup guides**: отдельный пользовательский раздел с гайдами для iOS, Android,
+  Windows, macOS и Android TV. Если подписка есть, рядом показывается кнопка
+  открытия subscription URL.
+- **Новый модуль `tessera-experience`**: расчёты health/usage и setup-каталог вынесены
+  из Telegram-слоя в отдельную библиотеку с тестами.
+- **Tessera Pulse**: добавлена таблица `user_events` (Flyway `V7`) и best-effort
+  `AnalyticsService`; события не ломают пользовательские сценарии, даже если
+  аналитика временно недоступна.
+- **Dashboard Pulse**: на вкладке статистики появился блок продуктовой воронки
+  за 30 дней и таблица top events.
+- **Payment analytics**: создание счетов и подтверждённые оплаты пишутся из
+  `PaymentService`, поэтому в Pulse попадают и ручные проверки, и фоновые
+  auto-payment confirmations.
+- **Tests**: `ExperienceServiceTest` покрывает расчёт дней, usage bar, high-traffic
+  warning и unlimited-трафик.
