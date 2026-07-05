@@ -63,6 +63,11 @@ public final class PaymentWatcher implements AutoCloseable {
                     notifier.sendMessage(inv.telegramId(), messages.t(lang, "pay.auto.confirmed",
                             paid.plan().title(), Formatting.dateTime(paid.user().expireAt)));
                     log.info("Payment watcher: invoice {} auto-confirmed for {}", inv.id(), inv.telegramId());
+                } else if (outcome instanceof PaymentService.CheckOutcome.GiftReady gift) {
+                    Lang lang = locales.forUser(inv.telegramId());
+                    notifier.sendMessage(inv.telegramId(), messages.t(lang, "gift.auto.ready",
+                            gift.plan().title(), gift.gift().code(), gift.shareLink()));
+                    log.info("Payment watcher: gift invoice {} auto-confirmed for {}", inv.id(), inv.telegramId());
                 }
             } catch (Exception e) {
                 log.debug("Payment watcher: check failed for invoice {}: {}", inv.id(), e.getMessage());

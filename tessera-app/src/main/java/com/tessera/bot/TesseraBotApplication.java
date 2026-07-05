@@ -5,6 +5,7 @@ import com.tessera.bot.config.AdminRole;
 import com.tessera.bot.config.AppConfig;
 import com.tessera.bot.db.Database;
 import com.tessera.bot.db.AuditRepository;
+import com.tessera.bot.db.GiftRepository;
 import com.tessera.bot.db.InvoiceRepository;
 import com.tessera.bot.db.NoticeRepository;
 import com.tessera.bot.db.PlanRepository;
@@ -21,6 +22,7 @@ import com.tessera.bot.module.NotifierHolder;
 import com.tessera.bot.remnawave.RemnawaveClient;
 import com.tessera.bot.service.ExpiryNotifier;
 import com.tessera.bot.service.AnalyticsService;
+import com.tessera.bot.service.GiftService;
 import com.tessera.bot.service.PaymentService;
 import com.tessera.bot.service.PaymentWatcher;
 import com.tessera.bot.db.Plans;
@@ -29,6 +31,7 @@ import com.tessera.bot.service.RateLimiter;
 import com.tessera.bot.service.ReferralService;
 import com.tessera.bot.service.SubscriptionService;
 import com.tessera.bot.service.SupportService;
+import com.tessera.bot.service.TelegramStarsProvider;
 import com.tessera.experience.ExperienceService;
 import com.tessera.ops.DatabaseBackupService;
 import com.tessera.ops.OpsAlertService;
@@ -69,6 +72,7 @@ public final class TesseraBotApplication {
         PromoRepository promoRepo = new PromoRepository(database.dataSource());
         NoticeRepository noticeRepo = new NoticeRepository(database.dataSource());
         UserEventRepository eventRepo = new UserEventRepository(database.dataSource());
+        GiftRepository giftRepo = new GiftRepository(database.dataSource());
 
         Plans.init(planRepo);
 
@@ -84,7 +88,13 @@ public final class TesseraBotApplication {
         SubscriptionService subscriptions = new SubscriptionService(config, panel, userRepo);
         ReferralService referrals = new ReferralService(config, referralRepo, panel, subscriptions);
         PromoService promos = new PromoService(promoRepo);
-        PaymentService payments = new PaymentService(config, invoiceRepo, subscriptions, referrals, promos, analytics);
+        GiftService giftService = new GiftService(giftRepo, subscriptions);
+        PaymentService payments = new PaymentService(config, invoiceRepo, subscriptions, referrals,
+                promos, analytics, giftService);
+        if (config.starsEnabled()) {
+            // Native Telegram Stars: zero-configuration payments available to every bot.
+            payments.register(new TelegramStarsProvider(config.botToken(), config.starsRubPerStar()));
+        }
         SupportService support = new SupportService(ticketRepo, config.adminIdsWithRole(AdminRole.SUPPORT), notifier);
 
         Path modulesDir = Path.of(env("MODULES_DIR", "modules"));
@@ -125,10 +135,11 @@ public final class TesseraBotApplication {
 
         TesseraBot bot = new TesseraBot(config, panel, userRepo, auditRepo,
                 subscriptions, referrals, payments, support, promos, locales, messages,
-                experience, analytics, rateLimiter);
+                experience, analytics, rateLimiter, giftService);
 
         TelegramBotsApi botsApi = new TelegramBotsApi(DefaultBotSession.class);
         botsApi.registerBot(bot);
+        bot.registerCommands();
         notifier.setDelegate(bot::sendPlain);
         OpsAlertService opsAlerts = new OpsAlertService(config, opsHealth, notifier);
         opsAlerts.start();

@@ -3,6 +3,7 @@ package com.tessera.bot.service;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.tessera.bot.config.AppConfig;
+import com.tessera.bot.db.GiftRepository;
 import com.tessera.bot.db.InvoiceRepository;
 import com.tessera.bot.db.Plans;
 import com.tessera.bot.db.model.PaymentInvoice;
@@ -34,6 +35,7 @@ public class PaymentService {
 
     public sealed interface CheckOutcome {
         record Paid(RemnawaveUser user, Plans.Plan plan) implements CheckOutcome {}
+        record GiftReady(GiftRepository.Gift gift, Plans.Plan plan, String shareLink) implements CheckOutcome {}
         record Pending(PaymentInvoice invoice) implements CheckOutcome {}
         record Failed() implements CheckOutcome {}
     }
@@ -45,23 +47,31 @@ public class PaymentService {
     private final ReferralService referrals;
     private final PromoService promos;
     private final AnalyticsService analytics;
+    private final GiftService giftService;
     private final ObjectMapper json = new ObjectMapper();
 
     public PaymentService(AppConfig config, InvoiceRepository invoices,
                           SubscriptionService subscriptions, ReferralService referrals,
                           PromoService promos) {
-        this(config, invoices, subscriptions, referrals, promos, null);
+        this(config, invoices, subscriptions, referrals, promos, null, null);
     }
 
     public PaymentService(AppConfig config, InvoiceRepository invoices,
                           SubscriptionService subscriptions, ReferralService referrals,
                           PromoService promos, AnalyticsService analytics) {
+        this(config, invoices, subscriptions, referrals, promos, analytics, null);
+    }
+
+    public PaymentService(AppConfig config, InvoiceRepository invoices,
+                          SubscriptionService subscriptions, ReferralService referrals,
+                          PromoService promos, AnalyticsService analytics, GiftService giftService) {
         this.config = config;
         this.invoices = invoices;
         this.subscriptions = subscriptions;
         this.referrals = referrals;
         this.promos = promos;
         this.analytics = analytics;
+        this.giftService = giftService;
     }
 
     /** Called by payment modules (via ModuleContext) during startup. */
@@ -82,15 +92,46 @@ public class PaymentService {
         return Optional.ofNullable(providers.get(id));
     }
 
+    /** Resolves a local invoice by its provider + provider-side external id (e.g. Stars payload). */
+    public Optional<PaymentInvoice> findInvoice(String providerId, String externalId) {
+        if (providerId == null || externalId == null || externalId.isBlank()) return Optional.empty();
+        return invoices.findByProviderExternal(providerId, externalId);
+    }
+
+    /** Most recent confirmed payments of a user (for the in-bot payment history screen). */
+    public List<InvoiceRepository.LedgerEntry> history(long telegramId, int limit) {
+        return invoices.recentPayments(telegramId, limit);
+    }
+
     /**
      * Creates a provider invoice and persists it locally as PENDING. When a valid promo
      * code is supplied the price is discounted; invalid/expired codes are ignored.
      */
     public CreateResult createInvoice(long telegramId, String providerId, Plans.Plan plan,
                                       String promoCode) throws Exception {
+        return createInvoice(telegramId, providerId, plan, promoCode, PaymentInvoice.KIND_PLAN);
+    }
+
+    /**
+     * Creates an invoice whose payment unlocks a redeemable gift code instead of the
+     * buyer's own subscription. The PENDING gift row is created together with the invoice.
+     */
+    public CreateResult createGiftInvoice(long telegramId, String providerId, Plans.Plan plan,
+                                          String promoCode) throws Exception {
+        if (giftService == null) {
+            throw new IllegalStateException("Gift subscriptions are not wired");
+        }
+        CreateResult result = createInvoice(telegramId, providerId, plan, promoCode, PaymentInvoice.KIND_GIFT);
+        giftService.createPending(telegramId, plan.code(), result.invoiceId());
+        return result;
+    }
+
+    private CreateResult createInvoice(long telegramId, String providerId, Plans.Plan plan,
+                                       String promoCode, String kind) throws Exception {
         PaymentProvider provider = byId(providerId)
                 .orElseThrow(() -> new IllegalArgumentException("Unknown payment provider: " + providerId));
 
+        boolean gift = PaymentInvoice.KIND_GIFT.equals(kind);
         long priceRub = plan.priceRub();
         String appliedPromo = null;
         if (promoCode != null && promos != null) {
@@ -104,16 +145,17 @@ public class PaymentService {
         long amountMinor = priceRub * 100L;
         PaymentRequest request = new PaymentRequest(
                 telegramId, plan.code(), plan.title(), amountMinor, "RUB",
-                "Tessera VPN \u2014 " + plan.title(),
+                (gift ? "Tessera VPN Gift \u2014 " : "Tessera VPN \u2014 ") + plan.title(),
                 "https://t.me/" + config.botUsername());
         CreatedInvoice created = provider.createInvoice(request);
         long id = invoices.insert(telegramId, plan.code(), provider.id(),
-                created.externalId(), created.payUrl(), amountMinor, "RUB", appliedPromo);
-        log.info("Invoice {} created: user={} plan={} provider={} ext={} promo={}",
-                id, telegramId, plan.code(), provider.id(), created.externalId(), appliedPromo);
+                created.externalId(), created.payUrl(), amountMinor, "RUB", appliedPromo, kind);
+        log.info("Invoice {} created: user={} plan={} provider={} ext={} promo={} kind={}",
+                id, telegramId, plan.code(), provider.id(), created.externalId(), appliedPromo, kind);
         if (analytics != null) {
             analytics.track(telegramId, AnalyticsService.Event.INVOICE_CREATED,
-                    Map.of("plan", plan.code(), "provider", provider.id(), "priceRub", priceRub));
+                    Map.of("plan", plan.code(), "provider", provider.id(),
+                            "priceRub", priceRub, "kind", kind));
         }
         return new CreateResult(id, created.payUrl(), plan, priceRub);
     }
@@ -139,7 +181,8 @@ public class PaymentService {
         if (plan == null) return new CheckOutcome.Failed();
 
         if ("PAID".equals(inv.status())) {
-            // Already processed earlier; just report the current subscription.
+            // Already processed earlier; just report the result of that processing.
+            if (inv.isGift()) return giftOutcome(invoiceId, plan);
             RemnawaveUser u = subscriptions.currentSubscription(telegramId).orElse(null);
             return u != null ? new CheckOutcome.Paid(u, plan) : new CheckOutcome.Failed();
         }
@@ -155,25 +198,39 @@ public class PaymentService {
                 // manual "I paid" check racing the background PaymentWatcher can never
                 // double-activate the subscription or double-reward the referrer.
                 if (!invoices.markPaidIfPending(invoiceId)) {
+                    if (inv.isGift()) return giftOutcome(invoiceId, plan);
                     RemnawaveUser u = subscriptions.currentSubscription(telegramId).orElse(null);
                     return u != null ? new CheckOutcome.Paid(u, plan) : new CheckOutcome.Failed();
                 }
                 try {
-                    RemnawaveUser user = subscriptions.activatePlan(
-                            telegramId, plan.days(), plan.trafficBytes(), plan.code());
+                    CheckOutcome outcome;
+                    if (inv.isGift()) {
+                        // A paid gift becomes a redeemable code; nothing is activated for the buyer.
+                        if (giftService != null) giftService.activateForInvoice(invoiceId);
+                        outcome = giftOutcome(invoiceId, plan);
+                        if (outcome instanceof CheckOutcome.Failed) {
+                            throw new IllegalStateException("paid gift invoice " + invoiceId + " has no gift row");
+                        }
+                    } else {
+                        RemnawaveUser user = subscriptions.activatePlan(
+                                telegramId, plan.days(), plan.trafficBytes(), plan.code());
+                        referrals.rewardOnActivation(telegramId).ifPresent(refId ->
+                                log.info("Referral reward granted to {} for paid activation by {}", refId, telegramId));
+                        outcome = new CheckOutcome.Paid(user, plan);
+                    }
                     invoices.recordPayment(telegramId, plan.code(), inv.amountCents(), inv.currency(),
                             plan.days(), inv.provider(), inv.externalId());
                     if (promos != null && inv.promoCode() != null) {
                         promos.redeemOnPaid(inv.promoCode(), telegramId, invoiceId);
                     }
-                    referrals.rewardOnActivation(telegramId).ifPresent(refId ->
-                            log.info("Referral reward granted to {} for paid activation by {}", refId, telegramId));
                     if (analytics != null) {
-                        analytics.track(telegramId, AnalyticsService.Event.PAYMENT_CONFIRMED,
+                        analytics.track(telegramId, inv.isGift()
+                                        ? AnalyticsService.Event.GIFT_PURCHASED
+                                        : AnalyticsService.Event.PAYMENT_CONFIRMED,
                                 Map.of("plan", plan.code(), "provider", inv.provider(), "invoice", invoiceId));
                     }
-                    log.info("Invoice {} PAID; plan {} activated for {}", invoiceId, plan.code(), telegramId);
-                    return new CheckOutcome.Paid(user, plan);
+                    log.info("Invoice {} PAID ({}); plan {} for {}", invoiceId, inv.kind(), plan.code(), telegramId);
+                    return outcome;
                 } catch (Exception e) {
                     // Activation failed after claiming — revert to PENDING so a later check retries.
                     invoices.markStatus(invoiceId, "PENDING");
@@ -209,6 +266,14 @@ public class PaymentService {
         PaymentInvoice inv = invoice.get();
         CheckOutcome outcome = checkAndActivate(inv.telegramId(), inv.id());
         return new WebhookResult(true, providerId, externalId, inv, outcome);
+    }
+
+    private CheckOutcome giftOutcome(long invoiceId, Plans.Plan plan) {
+        if (giftService == null) return new CheckOutcome.Failed();
+        return giftService.activateForInvoice(invoiceId)
+                .<CheckOutcome>map(gift -> new CheckOutcome.GiftReady(gift, plan,
+                        GiftService.shareLink(config.botUsername(), gift.code())))
+                .orElseGet(CheckOutcome.Failed::new);
     }
 
     private String extractExternalId(String body) {

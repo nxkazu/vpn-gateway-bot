@@ -14,6 +14,7 @@ public final class Callbacks {
     public static final String MENU_HELP = "menu:help";
     public static final String MENU_LANGUAGE = "menu:lang";
     public static final String MENU_SUPPORT = "menu:support";
+    public static final String MENU_PAYMENTS = "menu:payments";
 
     public static final String BUY_PREFIX = "buy:";     // buy:<planCode>
     public static final String LANG_PREFIX = "lang:";   // lang:<code>
@@ -23,6 +24,12 @@ public final class Callbacks {
     public static final String PAY_PREFIX = "pay:";           // pay:<providerId>:<planCode>
     public static final String PAY_CHECK_PREFIX = "paychk:";  // paychk:<invoiceId>
     public static final String PROMO_PREFIX = "promo:";      // promo:<planCode>
+
+    // Gifts
+    public static final String MENU_GIFT = "menu:gift";
+    public static final String MENU_GIFT_REDEEM = "menu:giftredeem";
+    public static final String GIFT_BUY_PREFIX = "giftbuy:";  // giftbuy:<planCode>
+    public static final String GIFT_PAY_PREFIX = "gpay:";     // gpay:<providerId>:<planCode>
 
     // Admin menu
     public static final String ADMIN_MAIN = "admin:main";

@@ -8,12 +8,17 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
 /** Data-access for {@code payment_invoices} and the {@code payments} ledger. */
 public class InvoiceRepository {
+
+    /** A confirmed row from the {@code payments} ledger (user-facing payment history). */
+    public record LedgerEntry(String planCode, long amountCents, String currency, int days,
+                              String provider, OffsetDateTime createdAt) {}
 
     private final DataSource ds;
 
@@ -23,10 +28,18 @@ public class InvoiceRepository {
     public long insert(long telegramId, String planCode, String provider,
                        String externalId, String payUrl, long amountCents, String currency,
                        String promoCode) {
+        return insert(telegramId, planCode, provider, externalId, payUrl, amountCents, currency,
+                promoCode, PaymentInvoice.KIND_PLAN);
+    }
+
+    /** Inserts a PENDING invoice of the given kind (PLAN / GIFT) and returns its database id. */
+    public long insert(long telegramId, String planCode, String provider,
+                       String externalId, String payUrl, long amountCents, String currency,
+                       String promoCode, String kind) {
         String sql = """
                 INSERT INTO payment_invoices
-                    (telegram_id, plan_code, provider, external_id, pay_url, amount_cents, currency, promo_code)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    (telegram_id, plan_code, provider, external_id, pay_url, amount_cents, currency, promo_code, kind)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """;
         try (Connection c = ds.getConnection();
              PreparedStatement ps = c.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
@@ -38,6 +51,7 @@ public class InvoiceRepository {
             ps.setLong(6, amountCents);
             ps.setString(7, currency);
             ps.setString(8, promoCode);
+            ps.setString(9, kind == null ? PaymentInvoice.KIND_PLAN : kind);
             ps.executeUpdate();
             try (ResultSet keys = ps.getGeneratedKeys()) {
                 keys.next();
@@ -141,6 +155,36 @@ public class InvoiceRepository {
         }
     }
 
+    /** Most recent confirmed payments of a user, newest first (user-facing history). */
+    public List<LedgerEntry> recentPayments(long telegramId, int limit) {
+        String sql = """
+                SELECT plan_code, amount_cents, currency, days, provider, created_at
+                FROM payments
+                WHERE telegram_id = ?
+                ORDER BY id DESC
+                LIMIT ?
+                """;
+        try (Connection c = ds.getConnection(); PreparedStatement ps = c.prepareStatement(sql)) {
+            ps.setLong(1, telegramId);
+            ps.setInt(2, limit);
+            try (ResultSet rs = ps.executeQuery()) {
+                List<LedgerEntry> out = new ArrayList<>();
+                while (rs.next()) {
+                    out.add(new LedgerEntry(
+                            rs.getString("plan_code"),
+                            rs.getLong("amount_cents"),
+                            rs.getString("currency"),
+                            rs.getInt("days"),
+                            rs.getString("provider"),
+                            rs.getObject("created_at", OffsetDateTime.class)));
+                }
+                return out;
+            }
+        } catch (SQLException e) {
+            throw new RuntimeException("recentPayments failed", e);
+        }
+    }
+
     private PaymentInvoice map(ResultSet rs) throws SQLException {
         return new PaymentInvoice(
                 rs.getLong("id"),
@@ -152,6 +196,7 @@ public class InvoiceRepository {
                 rs.getLong("amount_cents"),
                 rs.getString("currency"),
                 rs.getString("status"),
-                rs.getString("promo_code"));
+                rs.getString("promo_code"),
+                rs.getString("kind"));
     }
 }

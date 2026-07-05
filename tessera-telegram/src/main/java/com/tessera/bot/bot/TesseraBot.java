@@ -8,6 +8,7 @@ import com.tessera.i18n.Lang;
 import com.tessera.bot.i18n.LocaleService;
 import com.tessera.i18n.Messages;
 import com.tessera.bot.remnawave.RemnawaveClient;
+import com.tessera.bot.service.GiftService;
 import com.tessera.bot.service.PaymentService;
 import com.tessera.bot.service.AnalyticsService;
 import com.tessera.bot.service.PromoService;
@@ -15,11 +16,14 @@ import com.tessera.bot.service.RateLimiter;
 import com.tessera.bot.service.ReferralService;
 import com.tessera.bot.service.SubscriptionService;
 import com.tessera.bot.service.SupportService;
+import com.tessera.bot.service.TelegramStarsProvider;
 import com.tessera.experience.ExperienceService;
 import lombok.extern.slf4j.Slf4j;
 import org.telegram.telegrambots.bots.TelegramLongPollingBot;
 import org.telegram.telegrambots.meta.api.methods.AnswerCallbackQuery;
+import org.telegram.telegrambots.meta.api.methods.AnswerPreCheckoutQuery;
 import org.telegram.telegrambots.meta.api.methods.ParseMode;
+import org.telegram.telegrambots.meta.api.methods.commands.SetMyCommands;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
 import org.telegram.telegrambots.meta.api.methods.updatingmessages.EditMessageText;
 import org.telegram.telegrambots.meta.api.objects.CallbackQuery;
@@ -27,10 +31,15 @@ import org.telegram.telegrambots.meta.api.objects.Message;
 import org.telegram.telegrambots.meta.api.objects.PhotoSize;
 import org.telegram.telegrambots.meta.api.objects.Update;
 import org.telegram.telegrambots.meta.api.objects.User;
+import org.telegram.telegrambots.meta.api.objects.commands.BotCommand;
+import org.telegram.telegrambots.meta.api.objects.commands.scope.BotCommandScopeDefault;
+import org.telegram.telegrambots.meta.api.objects.payments.PreCheckoutQuery;
+import org.telegram.telegrambots.meta.api.objects.payments.SuccessfulPayment;
 import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
 
 import java.time.Duration;
 import java.util.List;
+import java.util.Optional;
 import java.util.function.Supplier;
 
 /**
@@ -47,6 +56,8 @@ public class TesseraBot extends TelegramLongPollingBot {
     private final UserRepository users;
     private final LocaleService locales;
     private final RateLimiter rateLimiter;
+    private final PaymentService payments;
+    private final Messages messages;
     private final UserState state = new UserState();
 
     public TesseraBot(AppConfig config, RemnawaveClient panel, UserRepository users, AuditRepository audit,
@@ -54,14 +65,16 @@ public class TesseraBot extends TelegramLongPollingBot {
                       PaymentService payments, SupportService support, PromoService promos,
                       LocaleService locales, Messages messages,
                       ExperienceService experience, AnalyticsService analytics,
-                      RateLimiter rateLimiter) {
+                      RateLimiter rateLimiter, GiftService gifts) {
         super(config.botToken());
         this.config = config;
         this.users = users;
         this.locales = locales;
         this.rateLimiter = rateLimiter;
+        this.payments = payments;
+        this.messages = messages;
         this.userHandler = new UserHandler(config, users, subscriptions, referrals,
-                payments, support, promos, locales, messages, experience, analytics, rateLimiter);
+                payments, support, promos, locales, messages, experience, analytics, rateLimiter, gifts);
         this.adminHandler = new AdminHandler(config, panel, users, subscriptions, audit, messages);
     }
 
@@ -75,6 +88,10 @@ public class TesseraBot extends TelegramLongPollingBot {
         try {
             if (update.hasCallbackQuery()) {
                 handleCallback(update.getCallbackQuery());
+            } else if (update.hasPreCheckoutQuery()) {
+                handlePreCheckout(update.getPreCheckoutQuery());
+            } else if (update.hasMessage() && update.getMessage().hasSuccessfulPayment()) {
+                handleSuccessfulPayment(update.getMessage());
             } else if (update.hasMessage() && update.getMessage().hasText()) {
                 handleMessage(update.getMessage());
             } else if (update.hasMessage()
@@ -84,6 +101,85 @@ public class TesseraBot extends TelegramLongPollingBot {
         } catch (Exception e) {
             log.error("Error handling update", e);
         }
+    }
+
+    // --------------------------------------------------- native Stars payments
+
+    /**
+     * Telegram Stars checkout, step 1: Telegram asks the bot to approve the order.
+     * The invoice must exist, belong to the payer and still be PENDING. Answered
+     * within Telegram's 10-second window.
+     */
+    private void handlePreCheckout(PreCheckoutQuery pcq) throws TelegramApiException {
+        long userId = pcq.getFrom().getId();
+        boolean ok = payments.findInvoice(TelegramStarsProvider.ID, pcq.getInvoicePayload())
+                .map(inv -> inv.telegramId() == userId && "PENDING".equals(inv.status()))
+                .orElse(false);
+        AnswerPreCheckoutQuery.AnswerPreCheckoutQueryBuilder answer = AnswerPreCheckoutQuery.builder()
+                .preCheckoutQueryId(pcq.getId())
+                .ok(ok);
+        if (!ok) {
+            log.warn("Stars pre-checkout rejected: user={} payload={}", userId, pcq.getInvoicePayload());
+            answer.errorMessage(messages.t(locales.forUser(userId), "stars.precheckout.failed"));
+        }
+        execute(answer.build());
+    }
+
+    /**
+     * Telegram Stars checkout, step 2: payment proof straight from Telegram.
+     * Confirms the invoice with the Stars provider and re-runs the standard
+     * idempotent activation path (ledger, promo redemption, referral reward).
+     */
+    private void handleSuccessfulPayment(Message msg) throws TelegramApiException {
+        SuccessfulPayment sp = msg.getSuccessfulPayment();
+        String payload = sp.getInvoicePayload();
+        long chatId = msg.getChatId();
+        log.info("Stars payment received: payload={} amount={} {} charge={}",
+                payload, sp.getTotalAmount(), sp.getCurrency(), sp.getTelegramPaymentChargeId());
+
+        payments.byId(TelegramStarsProvider.ID)
+                .filter(TelegramStarsProvider.class::isInstance)
+                .map(TelegramStarsProvider.class::cast)
+                .ifPresent(stars -> stars.confirmPaid(payload));
+
+        Optional<com.tessera.bot.db.model.PaymentInvoice> invoice =
+                payments.findInvoice(TelegramStarsProvider.ID, payload);
+        if (invoice.isEmpty()) {
+            log.error("Stars payment {} has no matching invoice (charge={})",
+                    payload, sp.getTelegramPaymentChargeId());
+            return;
+        }
+        send(chatId, userHandler.checkPayment(invoice.get().telegramId(), invoice.get().id()));
+    }
+
+    /**
+     * Publishes the bot command menu (/start, /menu, /help) with localized
+     * descriptions: an English default scope plus one scope per supported language.
+     */
+    public void registerCommands() {
+        try {
+            execute(SetMyCommands.builder()
+                    .commands(commandsFor(Lang.DEFAULT))
+                    .scope(BotCommandScopeDefault.builder().build())
+                    .build());
+            for (Lang lang : Lang.values()) {
+                execute(SetMyCommands.builder()
+                        .commands(commandsFor(lang))
+                        .scope(BotCommandScopeDefault.builder().build())
+                        .languageCode(lang.code())
+                        .build());
+            }
+            log.info("Bot command menu registered for {} languages", Lang.values().length);
+        } catch (TelegramApiException e) {
+            log.warn("Failed to register bot command menu: {}", e.getMessage());
+        }
+    }
+
+    private List<BotCommand> commandsFor(Lang lang) {
+        return List.of(
+                new BotCommand("start", messages.t(lang, "cmd.start")),
+                new BotCommand("menu", messages.t(lang, "cmd.menu")),
+                new BotCommand("help", messages.t(lang, "cmd.help")));
     }
 
     // ------------------------------------------------------------- messages
@@ -101,6 +197,11 @@ public class TesseraBot extends TelegramLongPollingBot {
         if (awaiting == UserState.Await.SUPPORT_TEXT) {
             state.clear(chatId);
             send(chatId, userHandler.supportSubmit(from.getId(), from.getUserName(), text));
+            return;
+        }
+        if (awaiting == UserState.Await.GIFT_CODE) {
+            state.clear(chatId);
+            send(chatId, userHandler.giftRedeem(from.getId(), text));
             return;
         }
         if (awaiting == UserState.Await.PROMO_CODE) {
@@ -279,6 +380,7 @@ public class TesseraBot extends TelegramLongPollingBot {
                 return userHandler.buyMenu(userId);
             }
             case Callbacks.MENU_SUB -> { return userHandler.mySubscription(userId); }
+            case Callbacks.MENU_PAYMENTS -> { return userHandler.paymentHistory(userId); }
             case Callbacks.MENU_TRIAL -> { return userHandler.trial(userId); }
             case Callbacks.MENU_SETUP -> { return userHandler.setupMenu(userId); }
             case Callbacks.MENU_REFERRAL -> { return userHandler.referral(userId); }
@@ -288,7 +390,22 @@ public class TesseraBot extends TelegramLongPollingBot {
                 state.set(chatId, UserState.Await.SUPPORT_TEXT);
                 return userHandler.supportPrompt(userId);
             }
+            case Callbacks.MENU_GIFT -> { return userHandler.giftMenu(userId); }
+            case Callbacks.MENU_GIFT_REDEEM -> {
+                state.set(chatId, UserState.Await.GIFT_CODE);
+                return userHandler.giftRedeemPrompt(userId);
+            }
             default -> { /* fall through */ }
+        }
+        if (data.startsWith(Callbacks.GIFT_BUY_PREFIX)) {
+            return userHandler.giftPlan(userId, data.substring(Callbacks.GIFT_BUY_PREFIX.length()));
+        }
+        if (data.startsWith(Callbacks.GIFT_PAY_PREFIX)) {
+            String rest = data.substring(Callbacks.GIFT_PAY_PREFIX.length());
+            int sep = rest.indexOf(':');
+            if (sep > 0) {
+                return userHandler.giftPayWith(userId, rest.substring(0, sep), rest.substring(sep + 1));
+            }
         }
         if (data.startsWith(Callbacks.BUY_PREFIX)) {
             return userHandler.buyPlan(userId, data.substring(Callbacks.BUY_PREFIX.length()));

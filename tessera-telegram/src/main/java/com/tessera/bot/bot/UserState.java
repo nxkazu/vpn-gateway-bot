@@ -12,7 +12,7 @@ public class UserState {
 
     public enum Await {
         NONE, BROADCAST_TEXT, FIND_USER_QUERY,
-        ADD_DAYS, SET_TRAFFIC, CREATE_SUB, SUPPORT_TEXT, PROMO_CODE
+        ADD_DAYS, SET_TRAFFIC, CREATE_SUB, SUPPORT_TEXT, PROMO_CODE, GIFT_CODE
     }
 
     private final Map<Long, Await> awaiting = new ConcurrentHashMap<>();

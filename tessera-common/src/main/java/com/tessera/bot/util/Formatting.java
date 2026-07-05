@@ -12,6 +12,8 @@ public final class Formatting {
 
     private static final DateTimeFormatter DATE =
             DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm").withZone(ZoneOffset.UTC);
+    private static final DateTimeFormatter DATE_ONLY =
+            DateTimeFormatter.ofPattern("dd.MM.yyyy").withZone(ZoneOffset.UTC);
 
     private Formatting() {}
 
@@ -26,6 +28,10 @@ public final class Formatting {
 
     public static String dateTime(OffsetDateTime dt) {
         return dt == null ? "\u2014" : DATE.format(dt);
+    }
+
+    public static String date(OffsetDateTime dt) {
+        return dt == null ? "\u2014" : DATE_ONLY.format(dt);
     }
 
     /** Localized, emoji-prefixed subscription status label. */

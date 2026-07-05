@@ -1,11 +1,14 @@
 package com.tessera.bot.bot;
 
 import com.tessera.bot.config.AppConfig;
+import com.tessera.bot.db.GiftRepository;
+import com.tessera.bot.db.InvoiceRepository;
 import com.tessera.bot.db.UserRepository;
 import com.tessera.i18n.Lang;
 import com.tessera.bot.i18n.LocaleService;
 import com.tessera.i18n.Messages;
 import com.tessera.bot.remnawave.dto.RemnawaveUser;
+import com.tessera.bot.service.GiftService;
 import com.tessera.bot.service.PaymentService;
 import com.tessera.bot.db.Plans;
 import com.tessera.bot.service.AnalyticsService;
@@ -14,6 +17,7 @@ import com.tessera.bot.service.RateLimiter;
 import com.tessera.bot.service.ReferralService;
 import com.tessera.bot.service.SubscriptionService;
 import com.tessera.bot.service.SupportService;
+import com.tessera.bot.service.TelegramStarsProvider;
 import com.tessera.bot.util.Formatting;
 import com.tessera.experience.DevicePlatform;
 import com.tessera.experience.ExperienceService;
@@ -21,6 +25,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.InlineKeyboardMarkup;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.Map;
 import java.time.Duration;
@@ -42,6 +47,7 @@ public class UserHandler {
     private final ExperienceService experience;
     private final AnalyticsService analytics;
     private final RateLimiter rateLimiter;
+    private final GiftService gifts;
 
     private Lang lang(long telegramId) {
         return locales.forUser(telegramId);
@@ -56,6 +62,11 @@ public class UserHandler {
                     users.upsert(refId, null, null, null); // ensure FK target exists
                     referrals.registerReferral(telegramId, refId);
                 });
+        // Gift deep link (t.me/Bot?start=gift_<code>): redeem immediately.
+        Optional<String> giftCode = GiftService.codeFromStartPayload(payload);
+        if (giftCode.isPresent()) {
+            return giftRedeem(telegramId, giftCode.get());
+        }
         Lang lang = lang(telegramId);
         return Reply.of(m.t(lang, "welcome"), mainMenu(telegramId, lang));
     }
@@ -155,8 +166,14 @@ public class UserHandler {
         }
         try {
             PaymentService.CreateResult res = payments.createInvoice(telegramId, providerId, plan, promoCode);
-            return Reply.of(m.t(lang, "pay.invoice", plan.title(), res.priceRub()),
-                    Keyboards.invoiceActions(m, lang, res.payUrl(), res.invoiceId()));
+            String text;
+            if (TelegramStarsProvider.ID.equals(providerId)) {
+                long stars = TelegramStarsProvider.starsAmount(res.priceRub() * 100L, config.starsRubPerStar());
+                text = m.t(lang, "pay.invoice.stars", plan.title(), stars);
+            } else {
+                text = m.t(lang, "pay.invoice", plan.title(), res.priceRub());
+            }
+            return Reply.of(text, Keyboards.invoiceActions(m, lang, res.payUrl(), res.invoiceId()));
         } catch (Exception e) {
             log.error("createInvoice failed: user={} provider={} plan={}", telegramId, providerId, planCode, e);
             return Reply.of(m.t(lang, "pay.provider.unavailable"), Keyboards.backTo(m, lang, Callbacks.MENU_BUY));
@@ -172,6 +189,11 @@ public class UserHandler {
                 return Reply.of(m.t(lang, "plan.activated", paid.plan().title(),
                                 Formatting.dateTime(paid.user().expireAt)),
                         Keyboards.subscriptionActions(m, lang, paid.user().subscriptionUrl, webAppUrl()));
+            }
+            if (outcome instanceof PaymentService.CheckOutcome.GiftReady gift) {
+                return Reply.of(m.t(lang, "gift.ready",
+                                gift.plan().title(), gift.gift().code(), gift.shareLink()),
+                        Keyboards.giftReady(m, lang, gift.shareLink()));
             }
             if (outcome instanceof PaymentService.CheckOutcome.Pending pending) {
                 return Reply.of(m.t(lang, "pay.pending"),
@@ -190,6 +212,120 @@ public class UserHandler {
                 log.info("Referral reward granted to {} for activation by {}", refId, telegramId));
         return Reply.of(m.t(lang, "plan.activated", plan.title(), Formatting.dateTime(u.expireAt)),
                 Keyboards.subscriptionActions(m, lang, u.subscriptionUrl, webAppUrl()));
+    }
+
+    // --------------------------------------------------------------- gifts
+
+    /** Gift hub: buy a plan as a gift or redeem a received code; lists the user's own gifts. */
+    public Reply giftMenu(long telegramId) {
+        analytics.track(telegramId, AnalyticsService.Event.GIFT_OPENED);
+        Lang lang = lang(telegramId);
+        return Reply.of(m.t(lang, "gift.menu") + renderMyGifts(telegramId, lang),
+                Keyboards.giftMenu(m, lang));
+    }
+
+    /** Gift plan selected: choose a payment method (gifts always require payment). */
+    public Reply giftPlan(long telegramId, String planCode) {
+        analytics.track(telegramId, AnalyticsService.Event.PLAN_SELECTED,
+                Map.of("plan", planCode, "kind", "gift"));
+        Lang lang = lang(telegramId);
+        Plans.Plan plan = Plans.byCode(planCode);
+        if (plan == null) {
+            return Reply.of(m.t(lang, "plan.unknown"), Keyboards.backTo(m, lang, Callbacks.MENU_GIFT));
+        }
+        if (!payments.hasProviders()) {
+            return Reply.of(m.t(lang, "pay.provider.unavailable"),
+                    Keyboards.backTo(m, lang, Callbacks.MENU_GIFT));
+        }
+        return Reply.of(m.t(lang, "gift.pay.choose", plan.title(), plan.priceRub()),
+                Keyboards.giftPaymentMethods(m, lang, plan.code(), payments.providers()));
+    }
+
+    /** Creates a gift invoice with the chosen provider and shows pay / check buttons. */
+    public Reply giftPayWith(long telegramId, String providerId, String planCode) {
+        Lang lang = lang(telegramId);
+        if (!config.isAdmin(telegramId)
+                && !rateLimiter.allow("invoice:" + telegramId,
+                        config.rateLimitInvoicesPerHour(), Duration.ofHours(1))) {
+            return Reply.of(m.t(lang, "rate.invoice"), Keyboards.backTo(m, lang, Callbacks.MENU_GIFT));
+        }
+        Plans.Plan plan = Plans.byCode(planCode);
+        if (plan == null) {
+            return Reply.of(m.t(lang, "plan.unknown"), Keyboards.backTo(m, lang, Callbacks.MENU_GIFT));
+        }
+        try {
+            PaymentService.CreateResult res = payments.createGiftInvoice(telegramId, providerId, plan, null);
+            String text;
+            if (TelegramStarsProvider.ID.equals(providerId)) {
+                long stars = TelegramStarsProvider.starsAmount(res.priceRub() * 100L, config.starsRubPerStar());
+                text = m.t(lang, "pay.invoice.stars", plan.title(), stars);
+            } else {
+                text = m.t(lang, "pay.invoice", plan.title(), res.priceRub());
+            }
+            return Reply.of(text, Keyboards.invoiceActions(m, lang, res.payUrl(), res.invoiceId()));
+        } catch (Exception e) {
+            log.error("createGiftInvoice failed: user={} provider={} plan={}", telegramId, providerId, planCode, e);
+            return Reply.of(m.t(lang, "pay.provider.unavailable"), Keyboards.backTo(m, lang, Callbacks.MENU_GIFT));
+        }
+    }
+
+    /** Asks the user to type the gift code they received. */
+    public Reply giftRedeemPrompt(long telegramId) {
+        Lang lang = lang(telegramId);
+        return Reply.of(m.t(lang, "gift.redeem.prompt"), Keyboards.backTo(m, lang, Callbacks.MENU_GIFT));
+    }
+
+    /** Redeems a gift code (typed or from a deep link) and activates the plan for the redeemer. */
+    public Reply giftRedeem(long telegramId, String rawCode) {
+        Lang lang = lang(telegramId);
+        GiftService.RedeemOutcome outcome;
+        try {
+            outcome = gifts.redeem(rawCode, telegramId);
+        } catch (Exception e) {
+            log.error("gift redeem failed: user={} code={}", telegramId, rawCode, e);
+            return Reply.of(m.t(lang, "gift.error"), Keyboards.backTo(m, lang, Callbacks.MENU_MAIN));
+        }
+        if (outcome instanceof GiftService.RedeemOutcome.Redeemed redeemed) {
+            analytics.track(telegramId, AnalyticsService.Event.GIFT_REDEEMED,
+                    Map.of("plan", redeemed.plan().code()));
+            return Reply.of(m.t(lang, "gift.redeemed",
+                            redeemed.plan().title(), Formatting.dateTime(redeemed.user().expireAt)),
+                    Keyboards.subscriptionActions(m, lang, redeemed.user().subscriptionUrl, webAppUrl()));
+        }
+        if (outcome instanceof GiftService.RedeemOutcome.NotPaidYet) {
+            return Reply.of(m.t(lang, "gift.not_paid"), Keyboards.backTo(m, lang, Callbacks.MENU_MAIN));
+        }
+        if (outcome instanceof GiftService.RedeemOutcome.AlreadyRedeemed) {
+            return Reply.of(m.t(lang, "gift.already_redeemed"), Keyboards.backTo(m, lang, Callbacks.MENU_MAIN));
+        }
+        return Reply.of(m.t(lang, "gift.invalid"), Keyboards.backTo(m, lang, Callbacks.MENU_MAIN));
+    }
+
+    private String renderMyGifts(long telegramId, Lang lang) {
+        List<GiftRepository.Gift> mine;
+        try {
+            mine = gifts.giftsOf(telegramId, 5);
+        } catch (Exception e) {
+            log.warn("giftsOf failed for {}: {}", telegramId, e.getMessage());
+            return "";
+        }
+        if (mine.isEmpty()) return "";
+        StringBuilder sb = new StringBuilder("\n\n").append(m.t(lang, "gift.list.header"));
+        for (GiftRepository.Gift g : mine) {
+            Plans.Plan plan = Plans.byCode(g.planCode());
+            String title = plan != null ? plan.title() : g.planCode();
+            sb.append('\n').append(m.t(lang, "gift.list.row",
+                    g.code(), title, m.t(lang, giftStatusKey(g.status()))));
+        }
+        return sb.toString();
+    }
+
+    private static String giftStatusKey(String status) {
+        return switch (status == null ? "" : status) {
+            case "ACTIVE" -> "gift.status.active";
+            case "REDEEMED" -> "gift.status.redeemed";
+            default -> "gift.status.pending";
+        };
     }
 
     // --------------------------------------------------------------- promo
@@ -260,6 +396,46 @@ public class UserHandler {
                 Map.of("ticket", s.ticketId()));
         return Reply.of(m.t(lang, "support.sent", s.ticketId()),
                 Keyboards.backTo(m, lang, Callbacks.MENU_MAIN));
+    }
+
+    // ---------------------------------------------------------- payment history
+
+    /** Shows the user's most recent confirmed payments (trust & self-service). */
+    public Reply paymentHistory(long telegramId) {
+        analytics.track(telegramId, AnalyticsService.Event.PAYMENTS_VIEWED);
+        Lang lang = lang(telegramId);
+        List<InvoiceRepository.LedgerEntry> entries;
+        try {
+            entries = payments.history(telegramId, 10);
+        } catch (Exception e) {
+            log.warn("paymentHistory failed for {}: {}", telegramId, e.getMessage());
+            entries = List.of();
+        }
+        if (entries.isEmpty()) {
+            return Reply.of(m.t(lang, "payments.empty"), Keyboards.backTo(m, lang, Callbacks.MENU_MAIN));
+        }
+        StringBuilder sb = new StringBuilder(m.t(lang, "payments.title")).append("\n");
+        for (InvoiceRepository.LedgerEntry e : entries) {
+            Plans.Plan plan = Plans.byCode(e.planCode());
+            String title = plan != null ? plan.title() : e.planCode();
+            sb.append('\n').append(m.t(lang, "payments.row",
+                    Formatting.date(e.createdAt()), title, formatAmount(e), providerLabel(e.provider())));
+        }
+        return Reply.of(sb.toString(), Keyboards.backTo(m, lang, Callbacks.MENU_MAIN));
+    }
+
+    private String formatAmount(InvoiceRepository.LedgerEntry e) {
+        long whole = e.amountCents() / 100;
+        long frac = Math.abs(e.amountCents() % 100);
+        String amount = frac == 0 ? String.valueOf(whole) : String.format("%d.%02d", whole, frac);
+        return "RUB".equalsIgnoreCase(e.currency()) ? amount + "₽" : amount + " " + e.currency();
+    }
+
+    private String providerLabel(String providerId) {
+        if (providerId == null || providerId.isBlank()) return "—";
+        return payments.byId(providerId)
+                .map(com.tessera.core.api.PaymentProvider::displayName)
+                .orElse(providerId);
     }
 
     public Reply referral(long telegramId) {

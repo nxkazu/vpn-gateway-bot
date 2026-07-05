@@ -33,6 +33,8 @@ public final class AppConfig {
     private final int referralRewardDays;
     private final String defaultTrafficStrategy;
     private final boolean allowFreeActivation;
+    private final boolean starsEnabled;
+    private final double starsRubPerStar;
 
     private final String opsBind;
     private final boolean opsEnabled;
@@ -76,6 +78,8 @@ public final class AppConfig {
         this.referralRewardDays = b.referralRewardDays;
         this.defaultTrafficStrategy = b.defaultTrafficStrategy;
         this.allowFreeActivation = b.allowFreeActivation;
+        this.starsEnabled = b.starsEnabled;
+        this.starsRubPerStar = b.starsRubPerStar;
         this.opsBind = b.opsBind;
         this.opsEnabled = b.opsEnabled;
         this.opsPort = b.opsPort;
@@ -121,6 +125,8 @@ public final class AppConfig {
         b.referralRewardDays = Integer.parseInt(env("REFERRAL_REWARD_DAYS", "15"));
         b.defaultTrafficStrategy = env("DEFAULT_TRAFFIC_STRATEGY", "MONTH");
         b.allowFreeActivation = Boolean.parseBoolean(env("ALLOW_FREE_ACTIVATION", "false"));
+        b.starsEnabled = Boolean.parseBoolean(env("STARS_ENABLED", "true"));
+        b.starsRubPerStar = Double.parseDouble(env("STARS_RUB_PER_STAR", "1.6"));
         b.opsBind = env("OPS_BIND", "0.0.0.0");
         b.opsEnabled = Boolean.parseBoolean(env("OPS_ENABLED", "true"));
         b.opsPort = Integer.parseInt(env("OPS_PORT", "9090"));
@@ -232,6 +238,8 @@ public final class AppConfig {
     public int referralRewardDays() { return referralRewardDays; }
     public String defaultTrafficStrategy() { return defaultTrafficStrategy; }
     public boolean allowFreeActivation() { return allowFreeActivation; }
+    public boolean starsEnabled() { return starsEnabled; }
+    public double starsRubPerStar() { return starsRubPerStar; }
     public String opsBind() { return opsBind; }
     public boolean opsEnabled() { return opsEnabled; }
     public int opsPort() { return opsPort; }
@@ -272,6 +280,8 @@ public final class AppConfig {
         private int referralRewardDays;
         private String defaultTrafficStrategy;
         private boolean allowFreeActivation;
+        private boolean starsEnabled;
+        private double starsRubPerStar;
         private String opsBind;
         private boolean opsEnabled;
         private int opsPort;

@@ -36,7 +36,9 @@ public final class Keyboards {
             rows.add(List.of(btn(m.t(lang, "btn.trial"), Callbacks.MENU_TRIAL)));
         }
         rows.add(List.of(btn(m.t(lang, "btn.setup"), Callbacks.MENU_SETUP)));
-        rows.add(List.of(btn(m.t(lang, "btn.referral"), Callbacks.MENU_REFERRAL)));
+        rows.add(List.of(
+                btn(m.t(lang, "btn.referral"), Callbacks.MENU_REFERRAL),
+                btn(m.t(lang, "btn.payments"), Callbacks.MENU_PAYMENTS)));
         rows.add(List.of(btn(m.t(lang, "btn.support"), Callbacks.MENU_SUPPORT)));
         rows.add(List.of(
                 btn(m.t(lang, "btn.help"), Callbacks.MENU_HELP),
@@ -50,6 +52,33 @@ public final class Keyboards {
             rows.add(List.of(btn(
                     m.t(lang, "plan.button", p.title(), p.priceRub(), p.trafficGb()),
                     Callbacks.BUY_PREFIX + p.code())));
+        }
+        rows.add(List.of(btn(m.t(lang, "btn.gift"), Callbacks.MENU_GIFT)));
+        rows.add(List.of(btn(m.t(lang, "btn.back"), Callbacks.MENU_MAIN)));
+        return InlineKeyboardMarkup.builder().keyboard(rows).build();
+    }
+
+    /** Gift hub: buy a plan as a gift, or redeem a received code. */
+    public static InlineKeyboardMarkup giftMenu(Messages m, Lang lang) {
+        List<List<InlineKeyboardButton>> rows = new ArrayList<>();
+        for (Plans.Plan p : Plans.all()) {
+            rows.add(List.of(btn(
+                    m.t(lang, "plan.button", p.title(), p.priceRub(), p.trafficGb()),
+                    Callbacks.GIFT_BUY_PREFIX + p.code())));
+        }
+        rows.add(List.of(btn(m.t(lang, "btn.gift.redeem"), Callbacks.MENU_GIFT_REDEEM)));
+        rows.add(List.of(btn(m.t(lang, "btn.back"), Callbacks.MENU_BUY)));
+        return InlineKeyboardMarkup.builder().keyboard(rows).build();
+    }
+
+    /** Card shown when a purchased gift becomes redeemable: share link + back to menu. */
+    public static InlineKeyboardMarkup giftReady(Messages m, Lang lang, String shareLink) {
+        List<List<InlineKeyboardButton>> rows = new ArrayList<>();
+        if (shareLink != null && !shareLink.isBlank()) {
+            String shareUrl = "https://t.me/share/url?url="
+                    + java.net.URLEncoder.encode(shareLink, java.nio.charset.StandardCharsets.UTF_8);
+            rows.add(List.of(InlineKeyboardButton.builder()
+                    .text(m.t(lang, "btn.gift.share")).url(shareUrl).build()));
         }
         rows.add(List.of(btn(m.t(lang, "btn.back"), Callbacks.MENU_MAIN)));
         return InlineKeyboardMarkup.builder().keyboard(rows).build();
@@ -267,14 +296,28 @@ public final class Keyboards {
     public static InlineKeyboardMarkup paymentMethods(Messages m, Lang lang, String planCode,
                                                       java.util.List<com.tessera.core.api.PaymentProvider> providers,
                                                       boolean showPromo) {
+        return paymentMethods(m, lang, planCode, providers, showPromo,
+                Callbacks.PAY_PREFIX, Callbacks.MENU_BUY);
+    }
+
+    /** Payment-method chooser for gift purchases (routes through the gift pay prefix). */
+    public static InlineKeyboardMarkup giftPaymentMethods(Messages m, Lang lang, String planCode,
+                                                          java.util.List<com.tessera.core.api.PaymentProvider> providers) {
+        return paymentMethods(m, lang, planCode, providers, false,
+                Callbacks.GIFT_PAY_PREFIX, Callbacks.MENU_GIFT);
+    }
+
+    private static InlineKeyboardMarkup paymentMethods(Messages m, Lang lang, String planCode,
+                                                       java.util.List<com.tessera.core.api.PaymentProvider> providers,
+                                                       boolean showPromo, String payPrefix, String backTo) {
         List<List<InlineKeyboardButton>> rows = new ArrayList<>();
         for (com.tessera.core.api.PaymentProvider p : providers) {
-            rows.add(List.of(btn(p.displayName(), Callbacks.PAY_PREFIX + p.id() + ":" + planCode)));
+            rows.add(List.of(btn(p.displayName(), payPrefix + p.id() + ":" + planCode)));
         }
         if (showPromo) {
             rows.add(List.of(btn(m.t(lang, "btn.promo"), Callbacks.PROMO_PREFIX + planCode)));
         }
-        rows.add(List.of(btn(m.t(lang, "btn.back"), Callbacks.MENU_BUY)));
+        rows.add(List.of(btn(m.t(lang, "btn.back"), backTo)));
         return InlineKeyboardMarkup.builder().keyboard(rows).build();
     }
 
