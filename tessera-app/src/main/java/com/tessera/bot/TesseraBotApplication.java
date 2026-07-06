@@ -95,7 +95,7 @@ public final class TesseraBotApplication {
             // Native Telegram Stars: zero-configuration payments available to every bot.
             payments.register(new TelegramStarsProvider(config.botToken(), config.starsRubPerStar(), invoiceRepo));
         }
-        SupportService support = new SupportService(ticketRepo, config.adminIdsWithRole(AdminRole.SUPPORT), notifier);
+        SupportService support = new SupportService(ticketRepo, config.adminIdsWithRole(AdminRole.SUPPORT), config.supportGroupId(), notifier);
 
         Path modulesDir = Path.of(env("MODULES_DIR", "modules"));
         Path modulesConfigDir = Path.of(env("MODULES_CONFIG_DIR", "config"));

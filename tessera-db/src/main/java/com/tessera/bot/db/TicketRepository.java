@@ -27,6 +27,20 @@ public class TicketRepository {
         }
     }
 
+    /** Gets the telegram_id associated with a ticket, or null if not found. */
+    public Long getTicketUser(long ticketId) {
+        String sql = "SELECT telegram_id FROM support_tickets WHERE id = ?";
+        try (Connection c = ds.getConnection(); PreparedStatement ps = c.prepareStatement(sql)) {
+            ps.setLong(1, ticketId);
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next() ? rs.getLong(1) : null;
+            }
+        } catch (SQLException e) {
+            throw new RuntimeException("getTicketUser failed", e);
+        }
+    }
+
+
     /** Creates a new OPEN ticket and returns its id. */
     public long createTicket(long telegramId, String subject) {
         String sql = "INSERT INTO support_tickets (telegram_id, subject) VALUES (?, ?)";

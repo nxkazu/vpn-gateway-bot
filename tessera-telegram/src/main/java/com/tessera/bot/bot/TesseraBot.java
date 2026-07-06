@@ -75,7 +75,7 @@ public class TesseraBot extends TelegramLongPollingBot {
         this.messages = messages;
         this.userHandler = new UserHandler(config, users, subscriptions, referrals,
                 payments, support, promos, locales, messages, experience, analytics, rateLimiter, gifts);
-        this.adminHandler = new AdminHandler(config, panel, users, subscriptions, audit, messages);
+        this.adminHandler = new AdminHandler(config, panel, users, subscriptions, audit, messages, support);
     }
 
     @Override
@@ -193,6 +193,12 @@ public class TesseraBot extends TelegramLongPollingBot {
             return;
         }
 
+        if (msg.isGroupMessage() || msg.isSuperGroupMessage()) {
+            handleGroupMessage(msg);
+            return;
+        }
+
+
         UserState.Await awaiting = state.get(chatId);
         if (awaiting == UserState.Await.SUPPORT_TEXT) {
             state.clear(chatId);
@@ -239,6 +245,20 @@ public class TesseraBot extends TelegramLongPollingBot {
             send(chatId, userHandler.supportSubmit(from.getId(), from.getUserName(), text));
         } else {
             send(chatId, userHandler.mainMenuReply(from.getId()));
+        }
+    }
+
+
+    private void handleGroupMessage(Message message) {
+        if (config.supportGroupId() == null || !config.supportGroupId().equals(message.getChatId())) {
+            return;
+        }
+        if (message.getReplyToMessage() != null) {
+            String text = message.getText();
+            if (text != null && !text.isBlank()) {
+                adminHandler.handleSupportReply(message.getReplyToMessage().getText(), text,
+                        message.getFrom().getId(), message.getFrom().getUserName());
+            }
         }
     }
 
@@ -588,14 +608,33 @@ public class TesseraBot extends TelegramLongPollingBot {
         }
     }
 
-    private void send(long chatId, Reply reply) throws TelegramApiException {
-        SendMessage message = SendMessage.builder()
-                .chatId(chatId)
-                .text(reply.text())
-                .replyMarkup(reply.keyboard())
-                .build();
-        sendMessageWithMarkdownFallback(message);
-    }
+        private void send(long chatId, Reply reply) throws TelegramApiException {
+            if (reply.photo() != null) {
+                org.telegram.telegrambots.meta.api.methods.send.SendPhoto message = org.telegram.telegrambots.meta.api.methods.send.SendPhoto.builder()
+                        .chatId(chatId)
+                        .caption(reply.text())
+                        .replyMarkup(reply.keyboard())
+                        .photo(new org.telegram.telegrambots.meta.api.objects.InputFile(new java.io.ByteArrayInputStream(reply.photo()), "qrcode.png"))
+                        .build();
+                try {
+                    execute(message);
+                } catch (TelegramApiException e) {
+                    if (e.getMessage() != null && e.getMessage().contains("can't parse entities")) {
+                        message.setParseMode(null);
+                        execute(message);
+                    } else {
+                        throw e;
+                    }
+                }
+                return;
+            }
+            SendMessage message = SendMessage.builder()
+                    .chatId(chatId)
+                    .text(reply.text())
+                    .replyMarkup(reply.keyboard())
+                    .build();
+            sendMessageWithMarkdownFallback(message);
+        }
 
     private void sendMessageWithMarkdownFallback(SendMessage message) throws TelegramApiException {
         message.setParseMode(ParseMode.MARKDOWN);
@@ -619,22 +658,38 @@ public class TesseraBot extends TelegramLongPollingBot {
         }
     }
 
-    private void edit(long chatId, int messageId, Reply reply) {
-        try {
-            EditMessageText.EditMessageTextBuilder builder = EditMessageText.builder()
-                    .chatId(chatId)
-                    .messageId(messageId)
-                    .text(reply.text());
-            if (reply.keyboard() != null) {
-                builder.replyMarkup(reply.keyboard());
+        private void edit(long chatId, int messageId, Reply reply) {
+            if (reply.photo() != null) {
+                try {
+                    execute(org.telegram.telegrambots.meta.api.methods.updatingmessages.DeleteMessage.builder()
+                            .chatId(chatId)
+                            .messageId(messageId)
+                            .build());
+                } catch (TelegramApiException e) {
+                    log.warn("Failed to delete message before sending photo", e);
+                }
+                try {
+                    send(chatId, reply);
+                } catch (TelegramApiException e) {
+                    log.error("Failed to send photo reply", e);
+                }
+                return;
             }
-            editMessageWithMarkdownFallback(builder.build());
-        } catch (TelegramApiException e) {
             try {
-                send(chatId, reply);
-            } catch (TelegramApiException ex) {
-                log.error("edit + send fallback failed", ex);
+                EditMessageText.EditMessageTextBuilder builder = EditMessageText.builder()
+                        .chatId(chatId)
+                        .messageId(messageId)
+                        .text(reply.text());
+                if (reply.keyboard() != null) {
+                    builder.replyMarkup(reply.keyboard());
+                }
+                editMessageWithMarkdownFallback(builder.build());
+            } catch (TelegramApiException e) {
+                try {
+                    send(chatId, reply);
+                } catch (TelegramApiException ex) {
+                    log.error("edit + send fallback failed", ex);
+                }
             }
         }
-    }
 }

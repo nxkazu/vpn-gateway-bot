@@ -19,6 +19,7 @@ import com.tessera.bot.service.SubscriptionService;
 import com.tessera.bot.service.SupportService;
 import com.tessera.bot.service.TelegramStarsProvider;
 import com.tessera.bot.util.Formatting;
+import com.tessera.bot.util.QRGenerator;
 import com.tessera.experience.DevicePlatform;
 import com.tessera.experience.ExperienceService;
 import lombok.RequiredArgsConstructor;
@@ -114,7 +115,15 @@ public class UserHandler {
                 insight.daysLeft(),
                 trafficLine,
                 m.t(lang, insight.advice().messageKey()));
-        return Reply.of(text, Keyboards.subscriptionActions(m, lang, u.subscriptionUrl, webAppUrl()));
+        byte[] qrCode = null;
+        try {
+            if (u.subscriptionUrl != null && !u.subscriptionUrl.isBlank()) {
+                qrCode = QRGenerator.generateQRCodeImage(u.subscriptionUrl, 512, 512);
+            }
+        } catch (Exception e) {
+            log.warn("Failed to generate QR code for subscription {}", u.id, e);
+        }
+        return Reply.of(text, Keyboards.subscriptionActions(m, lang, u.subscriptionUrl, webAppUrl()), qrCode);
     }
 
     public Reply trial(long telegramId) {

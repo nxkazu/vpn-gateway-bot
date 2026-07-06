@@ -20,6 +20,7 @@ public class SupportService {
 
     private final TicketRepository tickets;
     private final Set<Long> adminIds;
+    private final Long supportGroupId;
     private final TelegramNotifier notifier;
 
     public record Submitted(long ticketId, boolean created) {}
@@ -58,9 +59,32 @@ public class SupportService {
         return new Submitted(open, created);
     }
 
+    /**
+     * Adds an admin reply to a ticket and forwards it to the user.
+     * Throws an exception if the ticket is not found or not open.
+     */
+    public void adminReply(long ticketId, String adminUsername, String text) {
+        Long telegramId = tickets.getTicketUser(ticketId);
+        if (telegramId == null) {
+            throw new IllegalArgumentException("Ticket not found or no user associated");
+        }
+        tickets.addMessage(ticketId, "ADMIN", adminUsername, text, null, null);
+        log.info("Admin {} reply to ticket {} (user {})", adminUsername, ticketId, telegramId);
+        if (notifier != null) {
+            try {
+                String msg = "\uD83D\uDCAC \u041E\u0442\u0432\u0435\u0442 \u043F\u043E\u0434\u0434\u0435\u0440\u0436\u043A\u0438 (\u0442\u0438\u043A\u0435\u0442 #" + ticketId + "):\n\n" + text;
+                notifier.sendMessage(telegramId, msg);
+            } catch (Exception e) {
+                log.warn("Failed to deliver admin reply to user {}: {}", telegramId, e.getMessage());
+            }
+        }
+    }
+
+
     private void notifyAdmins(long ticketId, boolean created, long telegramId,
                               String username, String body, boolean hasAttachment) {
-        if (notifier == null || adminIds == null || adminIds.isEmpty()) return;
+        if (notifier == null) return;
+        if ((adminIds == null || adminIds.isEmpty()) && supportGroupId == null) return;
         String who = username != null && !username.isBlank() ? "@" + username : String.valueOf(telegramId);
         String preview = body.length() > 300 ? body.substring(0, 300) + "\u2026" : body;
         String head = created
@@ -68,11 +92,19 @@ public class SupportService {
                 : "\uD83D\uDCAC \u0421\u043E\u043E\u0431\u0449\u0435\u043D\u0438\u0435 \u0432 \u0442\u0438\u043A\u0435\u0442\u0435 #" + ticketId;
         String attach = hasAttachment ? " [+\u0432\u043B\u043E\u0436\u0435\u043D\u0438\u0435]" : "";
         String msg = head + " \u043E\u0442 " + who + attach + ":\n\n" + preview;
-        for (long adminId : adminIds) {
+        if (supportGroupId != null) {
             try {
-                notifier.sendMessage(adminId, msg);
+                notifier.sendMessage(supportGroupId, msg);
             } catch (Exception e) {
-                log.debug("admin notify {} failed: {}", adminId, e.getMessage());
+                log.debug("group notify failed: {}", e.getMessage());
+            }
+        } else if (adminIds != null) {
+            for (long adminId : adminIds) {
+                try {
+                    notifier.sendMessage(adminId, msg);
+                } catch (Exception e) {
+                    log.debug("admin notify {} failed: {}", adminId, e.getMessage());
+                }
             }
         }
     }

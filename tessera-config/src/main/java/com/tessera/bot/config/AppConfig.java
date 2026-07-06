@@ -18,6 +18,7 @@ public final class AppConfig {
     private final Set<Long> adminIds;
     private final Map<Long, Set<AdminRole>> adminRoles;
 
+    private final Long supportGroupId;
     private final String remnawaveBaseUrl;
     private final String remnawaveToken;
     private final String defaultSquadUuid;
@@ -67,6 +68,7 @@ public final class AppConfig {
         this.adminRoles = b.adminRoles;
         this.remnawaveBaseUrl = b.remnawaveBaseUrl;
         this.remnawaveToken = b.remnawaveToken;
+        this.supportGroupId = b.supportGroupId;
         this.defaultSquadUuid = b.defaultSquadUuid;
         this.dbHost = b.dbHost;
         this.dbPort = b.dbPort;
@@ -112,6 +114,8 @@ public final class AppConfig {
 
         b.remnawaveBaseUrl = stripTrailingSlash(required("REMNAWAVE_BASE_URL"));
         b.remnawaveToken = required("REMNAWAVE_TOKEN");
+        String sgi = env("SUPPORT_GROUP_ID", null);
+        b.supportGroupId = sgi != null ? Long.parseLong(sgi) : null;
         b.defaultSquadUuid = env("REMNAWAVE_DEFAULT_SQUAD_UUID", "").trim();
 
         b.dbHost = env("DB_HOST", "localhost");
@@ -209,6 +213,7 @@ public final class AppConfig {
     public String botUsername() { return botUsername; }
     public Set<Long> adminIds() { return adminIds; }
     public Map<Long, Set<AdminRole>> adminRoles() { return adminRoles; }
+    public Long supportGroupId() { return supportGroupId; }
     public boolean isAdmin(long telegramId) { return adminRoles.containsKey(telegramId); }
     public boolean hasRole(long telegramId, AdminRole role) {
         Set<AdminRole> roles = adminRoles.getOrDefault(telegramId, Set.of());
@@ -269,6 +274,7 @@ public final class AppConfig {
         private Map<Long, Set<AdminRole>> adminRoles;
         private String remnawaveBaseUrl;
         private String remnawaveToken;
+        private Long supportGroupId;
         private String defaultSquadUuid;
         private String dbHost;
         private int dbPort;

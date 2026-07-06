@@ -15,6 +15,7 @@ import com.tessera.bot.remnawave.dto.SystemStats;
 import com.tessera.bot.db.Plans;
 import com.tessera.bot.service.SubscriptionService;
 import com.tessera.bot.util.Formatting;
+import com.tessera.bot.service.SupportService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.InlineKeyboardMarkup;
@@ -39,6 +40,8 @@ public class AdminHandler {
     private final SubscriptionService subscriptions;
     private final AuditRepository audit;
     private final Messages m;
+
+    private final SupportService support;
 
     // Short-lived caches so per-device / per-squad buttons carry a small index instead of a
     // 36-char uuid (Telegram limits callback_data to 64 bytes).
@@ -620,5 +623,22 @@ public class AdminHandler {
 
     private String pretty(JsonNode node) {
         return node == null ? "no data" : node.toPrettyString();
+    }
+
+    public void handleSupportReply(String originalMessageText, String text, Long adminId, String adminUsername) {
+        if (originalMessageText == null) return;
+        // Try to extract ticket ID from "Новый тикет #123" or "Сообщение в тикете #123"
+        int hashIdx = originalMessageText.indexOf('#');
+        if (hashIdx == -1) return;
+        int spaceIdx = originalMessageText.indexOf(' ', hashIdx);
+        if (spaceIdx == -1) spaceIdx = originalMessageText.indexOf(':', hashIdx);
+        if (spaceIdx == -1) spaceIdx = originalMessageText.length();
+        
+        try {
+            long ticketId = Long.parseLong(originalMessageText.substring(hashIdx + 1, spaceIdx).replaceAll("[^0-9]", ""));
+            support.adminReply(ticketId, adminUsername != null ? adminUsername : String.valueOf(adminId), text);
+        } catch (Exception e) {
+            log.warn("Could not parse ticket ID from group reply: {}", originalMessageText);
+        }
     }
 }
