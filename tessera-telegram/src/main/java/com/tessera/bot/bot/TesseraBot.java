@@ -136,12 +136,6 @@ public class TesseraBot extends TelegramLongPollingBot {
         long chatId = msg.getChatId();
         log.info("Stars payment received: payload={} amount={} {} charge={}",
                 payload, sp.getTotalAmount(), sp.getCurrency(), sp.getTelegramPaymentChargeId());
-
-        payments.byId(TelegramStarsProvider.ID)
-                .filter(TelegramStarsProvider.class::isInstance)
-                .map(TelegramStarsProvider.class::cast)
-                .ifPresent(stars -> stars.confirmPaid(payload));
-
         Optional<com.tessera.bot.db.model.PaymentInvoice> invoice =
                 payments.findInvoice(TelegramStarsProvider.ID, payload);
         if (invoice.isEmpty()) {
@@ -149,7 +143,13 @@ public class TesseraBot extends TelegramLongPollingBot {
                     payload, sp.getTelegramPaymentChargeId());
             return;
         }
-        send(chatId, userHandler.checkPayment(invoice.get().telegramId(), invoice.get().id()));
+        try {
+            send(chatId, userHandler.checkPayment(invoice.get().telegramId(), invoice.get().id()));
+        } catch (Exception e) {
+            log.error("Stars payment activation failed for {} (charge={})", payload, sp.getTelegramPaymentChargeId(), e);
+            Lang lang = locales.forUser(chatId);
+            send(chatId, Reply.of(messages.t(lang, "pay.failed")));
+        }
     }
 
     /**

@@ -53,21 +53,35 @@ public class PromoRepository {
 
     /** Inserts the redemption (idempotent) and bumps the usage counter. */
     public void redeem(String code, long telegramId, long invoiceId) {
-        try (Connection c = ds.getConnection()) {
-            int inserted;
-            try (PreparedStatement ps = c.prepareStatement(
-                    "INSERT INTO promo_redemptions (code, telegram_id, invoice_id) VALUES (?, ?, ?) "
-                            + "ON CONFLICT (code, telegram_id) DO NOTHING")) {
-                ps.setString(1, code);
-                ps.setLong(2, telegramId);
-                ps.setLong(3, invoiceId);
-                inserted = ps.executeUpdate();
+        redeem(null, code, telegramId, invoiceId);
+    }
+
+    public void redeem(Connection conn, String code, long telegramId, long invoiceId) {
+        try {
+            boolean manageConnection = (conn == null);
+            if (manageConnection) {
+                conn = ds.getConnection();
             }
-            if (inserted > 0) {
-                try (PreparedStatement ps = c.prepareStatement(
-                        "UPDATE promo_codes SET uses = uses + 1 WHERE code = ?")) {
+            try {
+                int inserted;
+                try (PreparedStatement ps = conn.prepareStatement(
+                        "INSERT INTO promo_redemptions (code, telegram_id, invoice_id) VALUES (?, ?, ?) "
+                                + "ON CONFLICT (code, telegram_id) DO NOTHING")) {
                     ps.setString(1, code);
-                    ps.executeUpdate();
+                    ps.setLong(2, telegramId);
+                    ps.setLong(3, invoiceId);
+                    inserted = ps.executeUpdate();
+                }
+                if (inserted > 0) {
+                    try (PreparedStatement ps = conn.prepareStatement(
+                            "UPDATE promo_codes SET uses = uses + 1 WHERE code = ?")) {
+                        ps.setString(1, code);
+                        ps.executeUpdate();
+                    }
+                }
+            } finally {
+                if (manageConnection && conn != null) {
+                    conn.close();
                 }
             }
         } catch (SQLException e) {

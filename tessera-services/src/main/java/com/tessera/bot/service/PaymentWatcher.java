@@ -49,13 +49,18 @@ public final class PaymentWatcher implements AutoCloseable {
 
     private void tick() {
         List<PaymentInvoice> pending;
+        List<PaymentInvoice> paidUnactivated;
         try {
             pending = invoices.findPending(MAX_AGE_HOURS);
+            paidUnactivated = invoices.findPaidUnactivated(MAX_AGE_HOURS);
         } catch (Exception e) {
-            log.warn("Payment watcher: failed to load pending invoices", e);
+            log.warn("Payment watcher: failed to load invoices", e);
             return;
         }
-        for (PaymentInvoice inv : pending) {
+        List<PaymentInvoice> toCheck = new java.util.ArrayList<>(pending);
+        toCheck.addAll(paidUnactivated);
+
+        for (PaymentInvoice inv : toCheck) {
             try {
                 PaymentService.CheckOutcome outcome = payments.checkAndActivate(inv.telegramId(), inv.id());
                 if (outcome instanceof PaymentService.CheckOutcome.Paid paid) {

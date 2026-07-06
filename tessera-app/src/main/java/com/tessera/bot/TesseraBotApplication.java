@@ -89,11 +89,11 @@ public final class TesseraBotApplication {
         ReferralService referrals = new ReferralService(config, referralRepo, panel, subscriptions);
         PromoService promos = new PromoService(promoRepo);
         GiftService giftService = new GiftService(giftRepo, subscriptions);
-        PaymentService payments = new PaymentService(config, invoiceRepo, subscriptions, referrals,
+        PaymentService payments = new PaymentService(database, config, invoiceRepo, subscriptions, referrals,
                 promos, analytics, giftService);
         if (config.starsEnabled()) {
             // Native Telegram Stars: zero-configuration payments available to every bot.
-            payments.register(new TelegramStarsProvider(config.botToken(), config.starsRubPerStar()));
+            payments.register(new TelegramStarsProvider(config.botToken(), config.starsRubPerStar(), invoiceRepo));
         }
         SupportService support = new SupportService(ticketRepo, config.adminIdsWithRole(AdminRole.SUPPORT), notifier);
 

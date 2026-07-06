@@ -31,15 +31,21 @@ public class RemnawaveClient {
     private final String baseUrl;
     private final String token;
     private final OkHttpClient http;
+    private final OkHttpClient asyncHttp;
     private final ObjectMapper mapper;
 
     public RemnawaveClient(AppConfig config) {
         this.baseUrl = config.remnawaveBaseUrl();
         this.token = config.remnawaveToken();
         this.http = new OkHttpClient.Builder()
-                .connectTimeout(Duration.ofSeconds(15))
-                .readTimeout(Duration.ofSeconds(30))
-                .callTimeout(Duration.ofSeconds(45))
+                .connectTimeout(Duration.ofSeconds(5))
+                .readTimeout(Duration.ofSeconds(8))
+                .callTimeout(Duration.ofSeconds(10))
+                .build();
+        this.asyncHttp = this.http.newBuilder()
+                .dispatcher(new okhttp3.Dispatcher(
+                        java.util.concurrent.Executors.newFixedThreadPool(4)
+                ))
                 .build();
         this.mapper = new ObjectMapper()
                 .registerModule(new JavaTimeModule())
@@ -210,6 +216,50 @@ public class RemnawaveClient {
         } catch (IOException e) {
             throw new RemnawaveException("Remnawave API transport error: " + e.getMessage(), e);
         }
+    }
+
+    private java.util.concurrent.CompletableFuture<JsonNode> executeAsync(Request req) {
+        java.util.concurrent.CompletableFuture<JsonNode> future = new java.util.concurrent.CompletableFuture<>();
+        asyncHttp.newCall(req).enqueue(new okhttp3.Callback() {
+            @Override
+            public void onFailure(okhttp3.Call call, IOException e) {
+                future.completeExceptionally(new RemnawaveException("Remnawave API transport error: " + e.getMessage(), e));
+            }
+
+            @Override
+            public void onResponse(okhttp3.Call call, Response resp) throws IOException {
+                try (ResponseBody body = resp.body()) {
+                    String bodyStr = body != null ? body.string() : "";
+                    if (!resp.isSuccessful()) {
+                        log.warn("Remnawave API {} {} -> {}: {}", req.method(), req.url(), resp.code(), bodyStr);
+                        future.completeExceptionally(new RemnawaveException(resp.code(),
+                                "Remnawave API error " + resp.code() + ": " + bodyStr));
+                        return;
+                    }
+                    if (bodyStr.isBlank()) {
+                        future.complete(null);
+                        return;
+                    }
+                    JsonNode root = mapper.readTree(bodyStr);
+                    future.complete(root.has("response") ? root.get("response") : root);
+                } catch (Exception e) {
+                    future.completeExceptionally(new RemnawaveException("Failed to parse Remnawave response", e));
+                }
+            }
+        });
+        return future;
+    }
+
+    private <T> java.util.concurrent.CompletableFuture<T> postAsync(String path, Object body, Class<T> type) {
+        RequestBody rb = toBody(body);
+        Request req = baseRequest(path).post(rb).build();
+        return executeAsync(req).thenApply(node -> convert(node, type));
+    }
+
+    private <T> java.util.concurrent.CompletableFuture<T> patchAsync(String path, Object body, Class<T> type) {
+        RequestBody rb = toBody(body);
+        Request req = baseRequest(path).patch(rb).build();
+        return executeAsync(req).thenApply(node -> convert(node, type));
     }
 
     private <T> T convert(JsonNode node, Class<T> type) {

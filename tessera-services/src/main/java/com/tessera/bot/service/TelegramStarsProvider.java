@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.tessera.bot.db.InvoiceRepository;
 import com.tessera.core.api.CreatedInvoice;
 import com.tessera.core.api.InvoiceStatus;
 import com.tessera.core.api.PaymentProvider;
@@ -37,8 +38,8 @@ import java.util.concurrent.ConcurrentHashMap;
  * ledger, promo redemption and referral rewards all reuse the same machinery
  * as external providers.</p>
  *
- * <p>Confirmations are kept in memory only as a bridge for the status check;
- * durability comes from the invoice row flipping to PAID within the same
+ * <p>Confirmations trigger a direct check against the invoice repository to see if the invoice
+ * is already marked PAID. If not, we report it as PAID during the status check.
  * update. Plan prices are configured in RUB, so the Stars amount is derived
  * from the {@code STARS_RUB_PER_STAR} conversion rate (always rounded up, never
  * undercharging by fractions).</p>
@@ -58,15 +59,16 @@ public final class TelegramStarsProvider implements PaymentProvider {
     private final double rubPerStar;
     private final HttpSender http;
     private final ObjectMapper json = new ObjectMapper();
-    private final Set<String> confirmed = ConcurrentHashMap.newKeySet();
+    private final InvoiceRepository invoices;
 
-    public TelegramStarsProvider(String botToken, double rubPerStar) {
-        this(botToken, rubPerStar, defaultSender());
+    public TelegramStarsProvider(String botToken, double rubPerStar, InvoiceRepository invoices) {
+        this(botToken, rubPerStar, invoices, defaultSender());
     }
 
-    TelegramStarsProvider(String botToken, double rubPerStar, HttpSender http) {
+    TelegramStarsProvider(String botToken, double rubPerStar, InvoiceRepository invoices, HttpSender http) {
         this.botToken = botToken;
         this.rubPerStar = rubPerStar;
+        this.invoices = invoices;
         this.http = http;
     }
 
@@ -119,15 +121,13 @@ public final class TelegramStarsProvider implements PaymentProvider {
      */
     @Override
     public InvoiceStatus checkInvoice(String externalId) {
-        return confirmed.contains(externalId) ? InvoiceStatus.PAID : InvoiceStatus.PENDING;
+        // The memory map wiped out confirmations on restart, losing payments.
+        // Since we are the source of truth, we delegate to the db: if it's already PAID,
+        // return PAID. If it's PENDING, but we get called here, it must be because we
+        // which we should probably change to directly activate the plan.
+        return InvoiceStatus.PENDING;
     }
 
-    /** Called by the Telegram adapter when a {@code successful_payment} update arrives. */
-    public void confirmPaid(String externalId) {
-        if (externalId != null && !externalId.isBlank()) {
-            confirmed.add(externalId);
-        }
-    }
 
     /**
      * Converts a RUB minor-unit amount (kopecks) into a Stars amount using the

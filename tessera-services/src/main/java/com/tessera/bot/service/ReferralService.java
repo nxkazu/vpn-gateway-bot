@@ -55,10 +55,14 @@ public class ReferralService {
      * grants the reward days to the referrer's VPN account and returns the rewarded referrer id.
      */
     public Optional<Long> rewardOnActivation(long referredId) {
+        return rewardOnActivation(null, referredId);
+    }
+
+    public Optional<Long> rewardOnActivation(java.sql.Connection conn, long referredId) {
         int rewardDays = config.referralRewardDays();
         if (rewardDays <= 0) return Optional.empty();
 
-        Optional<Long> referrer = referrals.claimReward(referredId, rewardDays);
+        Optional<Long> referrer = referrals.claimReward(conn, referredId, rewardDays);
         if (referrer.isEmpty()) return Optional.empty();
 
         long referrerId = referrer.get();
@@ -72,7 +76,7 @@ public class ReferralService {
                 if (!refAcc.isActive()) panel.enableUser(refAcc.uuid);
             }
         } catch (Exception e) {
-            log.error("Failed to apply referral reward to {}", referrerId, e);
+            log.warn("Failed to apply referral reward +{}d on Remnawave for referrer {}", rewardDays, referrerId, e);
         }
         return referrer;
     }

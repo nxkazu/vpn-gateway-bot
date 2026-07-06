@@ -1,5 +1,7 @@
 package com.tessera.i18n;
 
+import java.text.MessageFormat;
+
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
@@ -54,10 +56,12 @@ public class Messages {
 
     private String substitute(String template, Object... args) {
         if (args == null || args.length == 0) return template;
-        String result = template;
-        for (int i = 0; i < args.length; i++) {
-            result = result.replace("{" + i + "}", args[i] == null ? "" : args[i].toString());
-        }
-        return result;
+        // MessageFormat uses single quotes for escaping, so we must escape them if any exist in the string
+        // to ensure normal apostrophes render properly. We replace ' with '' unless it's already escaped.
+        // We don't do complex escaping here, but minimal to prevent breaking MessageFormat.
+        // A cleaner approach is assuming the .properties file has correctly doubled '' for apostrophes.
+        // To match standard Java properties usage, we just use MessageFormat directly.
+        MessageFormat format = new MessageFormat(template);
+        return format.format(args);
     }
 }

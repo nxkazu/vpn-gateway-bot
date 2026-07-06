@@ -50,7 +50,7 @@ class TelegramStarsProviderTest {
     @Test
     void createInvoiceBuildsXtrInvoiceLinkRequest() throws Exception {
         List<String> bodies = new ArrayList<>();
-        TelegramStarsProvider provider = new TelegramStarsProvider("TOKEN", 1.6, (url, body) -> {
+        TelegramStarsProvider provider = new TelegramStarsProvider("TOKEN", 1.6, null, (url, body) -> {
             assertTrue(url.contains("/botTOKEN/createInvoiceLink"));
             bodies.add(body);
             return "{\"ok\":true,\"result\":\"https://t.me/$abc\"}";
@@ -70,7 +70,7 @@ class TelegramStarsProviderTest {
 
     @Test
     void createInvoiceFailsWhenTelegramRejects() {
-        TelegramStarsProvider provider = new TelegramStarsProvider("TOKEN", 1.6,
+        TelegramStarsProvider provider = new TelegramStarsProvider("TOKEN", 1.6, null,
                 (url, body) -> "{\"ok\":false,\"description\":\"PAYMENT_PROVIDER_INVALID\"}");
         IllegalStateException e = assertThrows(IllegalStateException.class,
                 () -> provider.createInvoice(request(149_00)));
@@ -79,23 +79,5 @@ class TelegramStarsProviderTest {
 
     // -------------------------------------------------------- status lifecycle
 
-    @Test
-    void invoiceIsPendingUntilTelegramConfirmsPayment() throws Exception {
-        TelegramStarsProvider provider = new TelegramStarsProvider("TOKEN", 1.6,
-                (url, body) -> "{\"ok\":true,\"result\":\"https://t.me/$abc\"}");
-        CreatedInvoice created = provider.createInvoice(request(149_00));
 
-        assertEquals(InvoiceStatus.PENDING, provider.checkInvoice(created.externalId()));
-        provider.confirmPaid(created.externalId());
-        assertEquals(InvoiceStatus.PAID, provider.checkInvoice(created.externalId()));
-    }
-
-    @Test
-    void confirmingUnknownOrBlankPayloadIsSafe() {
-        TelegramStarsProvider provider = new TelegramStarsProvider("TOKEN", 1.6,
-                (url, body) -> "{\"ok\":true,\"result\":\"x\"}");
-        provider.confirmPaid(null);
-        provider.confirmPaid("  ");
-        assertEquals(InvoiceStatus.PENDING, provider.checkInvoice("stars-nope"));
-    }
 }

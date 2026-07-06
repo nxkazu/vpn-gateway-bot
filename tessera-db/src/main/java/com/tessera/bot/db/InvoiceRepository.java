@@ -106,6 +106,35 @@ public class InvoiceRepository {
             throw new RuntimeException("findPending failed", e);
         }
     }
+    /**
+     * Returns PAID invoices that lack a corresponding row in the {@code payments} ledger.
+     * These are invoices where the database marked them PAID but the subsequent
+     * activation step failed (e.g. network error talking to Remnawave), so they
+     * need to be retried by the background watcher to not lose the payment.
+     */
+    public List<PaymentInvoice> findPaidUnactivated(int maxAgeHours) {
+        String sql = """
+                SELECT i.* FROM payment_invoices i
+                LEFT JOIN payments p ON p.provider_ref = i.external_id AND p.provider = i.provider
+                WHERE i.status = 'PAID'
+                  AND i.kind = 'PLAN'
+                  AND p.id IS NULL
+                  AND i.created_at > now() - make_interval(hours => ?)
+                ORDER BY i.id
+                LIMIT 100
+                """;
+        try (Connection c = ds.getConnection(); PreparedStatement ps = c.prepareStatement(sql)) {
+            ps.setInt(1, maxAgeHours);
+            try (ResultSet rs = ps.executeQuery()) {
+                List<PaymentInvoice> out = new ArrayList<>();
+                while (rs.next()) out.add(map(rs));
+                return out;
+            }
+        } catch (SQLException e) {
+            throw new RuntimeException("findPaidUnactivated failed", e);
+        }
+    }
+
 
     public void markStatus(long id, String status) {
         String sql = "UPDATE payment_invoices SET status = ?, updated_at = now() WHERE id = ?";
@@ -137,19 +166,34 @@ public class InvoiceRepository {
     /** Writes a row into the pre-existing {@code payments} ledger table. */
     public void recordPayment(long telegramId, String planCode, long amountCents, String currency,
                               int days, String provider, String providerRef) {
+        recordPayment(null, telegramId, planCode, amountCents, currency, days, provider, providerRef);
+    }
+
+    public void recordPayment(Connection conn, long telegramId, String planCode, long amountCents, String currency,
+                              int days, String provider, String providerRef) {
         String sql = """
                 INSERT INTO payments (telegram_id, plan_code, amount_cents, currency, days, status, provider, provider_ref)
                 VALUES (?, ?, ?, ?, ?, 'PAID', ?, ?)
                 """;
-        try (Connection c = ds.getConnection(); PreparedStatement ps = c.prepareStatement(sql)) {
-            ps.setLong(1, telegramId);
-            ps.setString(2, planCode);
-            ps.setLong(3, amountCents);
-            ps.setString(4, currency);
-            ps.setInt(5, days);
-            ps.setString(6, provider);
-            ps.setString(7, providerRef);
-            ps.executeUpdate();
+        try {
+            boolean manageConnection = (conn == null);
+            if (manageConnection) {
+                conn = ds.getConnection();
+            }
+            try (PreparedStatement ps = conn.prepareStatement(sql)) {
+                ps.setLong(1, telegramId);
+                ps.setString(2, planCode);
+                ps.setLong(3, amountCents);
+                ps.setString(4, currency);
+                ps.setInt(5, days);
+                ps.setString(6, provider);
+                ps.setString(7, providerRef);
+                ps.executeUpdate();
+            } finally {
+                if (manageConnection && conn != null) {
+                    conn.close();
+                }
+            }
         } catch (SQLException e) {
             throw new RuntimeException("recordPayment failed", e);
         }

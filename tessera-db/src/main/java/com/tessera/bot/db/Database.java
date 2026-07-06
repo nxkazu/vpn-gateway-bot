@@ -31,6 +31,29 @@ public class Database implements AutoCloseable {
                 .migrate();
     }
 
+    public interface TxBlock<T> {
+        T execute(java.sql.Connection conn) throws java.sql.SQLException;
+    }
+
+    public <T> T inTransaction(TxBlock<T> block) throws java.sql.SQLException {
+        try (java.sql.Connection conn = dataSource.getConnection()) {
+            conn.setAutoCommit(false);
+            try {
+                T result = block.execute(conn);
+                conn.commit();
+                return result;
+            } catch (Exception e) {
+                conn.rollback();
+                if (e instanceof java.sql.SQLException) {
+                    throw (java.sql.SQLException) e;
+                }
+                throw new java.sql.SQLException("Transaction failed", e);
+            } finally {
+                conn.setAutoCommit(true);
+            }
+        }
+    }
+
     public DataSource dataSource() { return dataSource; }
 
     @Override

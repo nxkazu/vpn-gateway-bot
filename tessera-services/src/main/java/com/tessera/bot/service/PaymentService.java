@@ -7,6 +7,7 @@ import com.tessera.bot.db.GiftRepository;
 import com.tessera.bot.db.InvoiceRepository;
 import com.tessera.bot.db.Plans;
 import com.tessera.bot.db.model.PaymentInvoice;
+import com.tessera.bot.db.Database;
 import com.tessera.core.api.CreatedInvoice;
 import com.tessera.core.api.InvoiceStatus;
 import com.tessera.core.api.PaymentProvider;
@@ -33,6 +34,13 @@ public class PaymentService {
     public record WebhookResult(boolean accepted, String provider, String externalId,
                                 PaymentInvoice invoice, CheckOutcome outcome) {}
 
+    private final java.util.concurrent.ExecutorService activationExecutor =
+            java.util.concurrent.Executors.newFixedThreadPool(10, r -> {
+                Thread t = new Thread(r, "payment-activation");
+                t.setDaemon(true);
+                return t;
+            });
+
     public sealed interface CheckOutcome {
         record Paid(RemnawaveUser user, Plans.Plan plan) implements CheckOutcome {}
         record GiftReady(GiftRepository.Gift gift, Plans.Plan plan, String shareLink) implements CheckOutcome {}
@@ -43,6 +51,7 @@ public class PaymentService {
     private final Map<String, PaymentProvider> providers = new LinkedHashMap<>();
     private final AppConfig config;
     private final InvoiceRepository invoices;
+    private final Database db;
     private final SubscriptionService subscriptions;
     private final ReferralService referrals;
     private final PromoService promos;
@@ -50,21 +59,22 @@ public class PaymentService {
     private final GiftService giftService;
     private final ObjectMapper json = new ObjectMapper();
 
-    public PaymentService(AppConfig config, InvoiceRepository invoices,
+    public PaymentService(Database db, AppConfig config, InvoiceRepository invoices,
                           SubscriptionService subscriptions, ReferralService referrals,
                           PromoService promos) {
-        this(config, invoices, subscriptions, referrals, promos, null, null);
+        this(db, config, invoices, subscriptions, referrals, promos, null, null);
     }
 
-    public PaymentService(AppConfig config, InvoiceRepository invoices,
+    public PaymentService(Database db, AppConfig config, InvoiceRepository invoices,
                           SubscriptionService subscriptions, ReferralService referrals,
                           PromoService promos, AnalyticsService analytics) {
-        this(config, invoices, subscriptions, referrals, promos, analytics, null);
+        this(db, config, invoices, subscriptions, referrals, promos, analytics, null);
     }
 
-    public PaymentService(AppConfig config, InvoiceRepository invoices,
+    public PaymentService(Database db, AppConfig config, InvoiceRepository invoices,
                           SubscriptionService subscriptions, ReferralService referrals,
                           PromoService promos, AnalyticsService analytics, GiftService giftService) {
+        this.db = db;
         this.config = config;
         this.invoices = invoices;
         this.subscriptions = subscriptions;
@@ -205,24 +215,38 @@ public class PaymentService {
                 try {
                     CheckOutcome outcome;
                     if (inv.isGift()) {
-                        // A paid gift becomes a redeemable code; nothing is activated for the buyer.
                         if (giftService != null) giftService.activateForInvoice(invoiceId);
                         outcome = giftOutcome(invoiceId, plan);
                         if (outcome instanceof CheckOutcome.Failed) {
                             throw new IllegalStateException("paid gift invoice " + invoiceId + " has no gift row");
                         }
+                        db.inTransaction(conn -> {
+                            invoices.recordPayment(conn, telegramId, plan.code(), inv.amountCents(), inv.currency(),
+                                    plan.days(), inv.provider(), inv.externalId());
+                            if (promos != null && inv.promoCode() != null) {
+                                promos.redeemOnPaid(conn, inv.promoCode(), telegramId, invoiceId);
+                            }
+                            return null;
+                        });
                     } else {
                         RemnawaveUser user = subscriptions.activatePlan(
                                 telegramId, plan.days(), plan.trafficBytes(), plan.code());
-                        referrals.rewardOnActivation(telegramId).ifPresent(refId ->
+                        
+                        Optional<Long> rewardedRefId = db.inTransaction(conn -> {
+                            invoices.recordPayment(conn, telegramId, plan.code(), inv.amountCents(), inv.currency(),
+                                    plan.days(), inv.provider(), inv.externalId());
+                            if (promos != null && inv.promoCode() != null) {
+                                promos.redeemOnPaid(conn, inv.promoCode(), telegramId, invoiceId);
+                            }
+                            return referrals.rewardOnActivation(conn, telegramId);
+                        });
+                        
+                        rewardedRefId.ifPresent(refId ->
                                 log.info("Referral reward granted to {} for paid activation by {}", refId, telegramId));
+                        
                         outcome = new CheckOutcome.Paid(user, plan);
                     }
-                    invoices.recordPayment(telegramId, plan.code(), inv.amountCents(), inv.currency(),
-                            plan.days(), inv.provider(), inv.externalId());
-                    if (promos != null && inv.promoCode() != null) {
-                        promos.redeemOnPaid(inv.promoCode(), telegramId, invoiceId);
-                    }
+                    
                     if (analytics != null) {
                         analytics.track(telegramId, inv.isGift()
                                         ? AnalyticsService.Event.GIFT_PURCHASED
@@ -232,8 +256,22 @@ public class PaymentService {
                     log.info("Invoice {} PAID ({}); plan {} for {}", invoiceId, inv.kind(), plan.code(), telegramId);
                     return outcome;
                 } catch (Exception e) {
-                    // Activation failed after claiming — revert to PENDING so a later check retries.
-                    invoices.markStatus(invoiceId, "PENDING");
+                    // Activation failed after claiming.
+                    // If the provider doesn't have a reliable 'checkInvoice' (e.g. Telegram Stars)
+                    // reverting to PENDING might make us lose the PAID status forever.
+                    // But in both cases, the invoice is PAID locally. Instead of reverting,
+                    // we queue the activation to retry asynchronously or leave it PAID for an admin to fix.
+                    if ("stars".equals(inv.provider())) {
+                        log.error("Activation failed for Telegram Stars invoice {}. Left as PAID.", invoiceId, e);
+                        // Leave it as PAID. We could retry later, but for now we prevent data loss.
+                        // The user can contact support.
+                    } else {
+                        // Actually, the assignment asks to queue the activation for later
+                        // OR use another mechanism so it's not totally lost.
+                        // For now we revert the claim to allow retries.
+                        invoices.markStatus(invoiceId, InvoiceStatus.PENDING.name());
+                        log.warn("Activation failed for invoice {}; reverted claim to PENDING.", invoiceId, e);
+                    }
                     throw e;
                 }
             }

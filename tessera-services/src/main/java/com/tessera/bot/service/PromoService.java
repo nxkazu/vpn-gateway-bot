@@ -42,8 +42,12 @@ public class PromoService {
 
     /** Records the redemption once the invoice is paid (idempotent per user+code). */
     public void redeemOnPaid(String code, long telegramId, long invoiceId) {
+        redeemOnPaid(null, code, telegramId, invoiceId);
+    }
+
+    public void redeemOnPaid(java.sql.Connection conn, String code, long telegramId, long invoiceId) {
         try {
-            repo.redeem(code, telegramId, invoiceId);
+            repo.redeem(conn, code, telegramId, invoiceId);
             log.info("Promo {} redeemed by {} (invoice {})", code, telegramId, invoiceId);
         } catch (Exception e) {
             log.warn("Promo redemption failed: code={} user={}", code, telegramId, e);

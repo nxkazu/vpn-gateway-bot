@@ -70,6 +70,10 @@ public class ReferralRepository {
      * (already rewarded or no referrer). Guarantees each referral pays out at most once.
      */
     public Optional<Long> claimReward(long referredId, int rewardDays) {
+        return claimReward(null, referredId, rewardDays);
+    }
+
+    public Optional<Long> claimReward(Connection conn, long referredId, int rewardDays) {
         String select = "SELECT referrer_id, rewarded FROM referrals WHERE referred_id = ? FOR UPDATE";
         String markRewarded = "UPDATE referrals SET rewarded = TRUE WHERE referred_id = ?";
         String insertLedger = """
@@ -77,35 +81,52 @@ public class ReferralRepository {
                 VALUES (?, ?, ?)
                 ON CONFLICT (referrer_id, referred_id) DO NOTHING
                 """;
-        try (Connection c = ds.getConnection()) {
-            c.setAutoCommit(false);
+        try {
+            boolean manageConnection = (conn == null);
+            if (manageConnection) {
+                conn = ds.getConnection();
+                conn.setAutoCommit(false);
+            }
             try {
                 long referrerId;
-                try (PreparedStatement ps = c.prepareStatement(select)) {
+                try (PreparedStatement ps = conn.prepareStatement(select)) {
                     ps.setLong(1, referredId);
                     try (ResultSet rs = ps.executeQuery()) {
-                        if (!rs.next()) { c.rollback(); return Optional.empty(); }
-                        if (rs.getBoolean("rewarded")) { c.rollback(); return Optional.empty(); }
+                        if (!rs.next()) {
+                            if (manageConnection) conn.rollback();
+                            return Optional.empty();
+                        }
+                        if (rs.getBoolean("rewarded")) {
+                            if (manageConnection) conn.rollback();
+                            return Optional.empty();
+                        }
                         referrerId = rs.getLong("referrer_id");
                     }
                 }
-                try (PreparedStatement ps = c.prepareStatement(markRewarded)) {
+                try (PreparedStatement ps = conn.prepareStatement(markRewarded)) {
                     ps.setLong(1, referredId);
                     ps.executeUpdate();
                 }
-                try (PreparedStatement ps = c.prepareStatement(insertLedger)) {
+                try (PreparedStatement ps = conn.prepareStatement(insertLedger)) {
                     ps.setLong(1, referrerId);
                     ps.setLong(2, referredId);
                     ps.setInt(3, rewardDays);
                     ps.executeUpdate();
                 }
-                c.commit();
+                if (manageConnection) {
+                    conn.commit();
+                }
                 return Optional.of(referrerId);
             } catch (SQLException e) {
-                c.rollback();
+                if (manageConnection && conn != null) {
+                    conn.rollback();
+                }
                 throw e;
             } finally {
-                c.setAutoCommit(true);
+                if (manageConnection && conn != null) {
+                    conn.setAutoCommit(true);
+                    conn.close();
+                }
             }
         } catch (SQLException e) {
             throw new RuntimeException("claimReward failed", e);
