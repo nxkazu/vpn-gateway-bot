@@ -21,6 +21,6 @@ dependencies {
     annotationProcessor("org.projectlombok:lombok:1.18.46")
 
     implementation("com.fasterxml.jackson.core:jackson-databind:2.22.0")
-    implementation("org.slf4j:slf4j-api:2.0.17")
+    implementation("org.slf4j:slf4j-api:2.0.18")
     api("org.telegram:telegrambots:6.9.7.1")
 }
