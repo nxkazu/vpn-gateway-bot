@@ -12,7 +12,7 @@ java {
 dependencies {
     // Provided by the host application's classloader at runtime (parent-first loading).
     compileOnly(project(":tessera-core"))
-    compileOnly("com.fasterxml.jackson.core:jackson-databind:2.22.0")
+    compileOnly("com.fasterxml.jackson.core:jackson-databind:2.22.1")
 }
 
 tasks.shadowJar {
