@@ -21,7 +21,7 @@ dependencies {
     testCompileOnly("org.projectlombok:lombok:1.18.46")
     testAnnotationProcessor("org.projectlombok:lombok:1.18.46")
 
-    implementation("com.fasterxml.jackson.core:jackson-databind:2.22.0")
+    implementation("com.fasterxml.jackson.core:jackson-databind:2.22.1")
     implementation("org.slf4j:slf4j-api:2.0.17")
 
     testImplementation(platform("org.junit:junit-bom:6.1.1"))
