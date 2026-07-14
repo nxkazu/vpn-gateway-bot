@@ -31,7 +31,7 @@ dependencies {
     implementation("org.telegram:telegrambots:6.9.7.1")
 
     // Logging
-    implementation("ch.qos.logback:logback-classic:1.5.37")
+    implementation("ch.qos.logback:logback-classic:1.5.38")
 }
 
 application {
